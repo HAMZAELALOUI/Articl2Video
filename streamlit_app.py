@@ -78,8 +78,8 @@ def main():
     /* Control media display sizes */
     /* Target video elements specifically within the main content area */
     .main .block-container video {
-        max-width: 50%; /* Adjust percentage as needed - Reduced from 70% */
-        max-height: 500px; /* Optional: Limit height */
+        max-width: 40%; /* Adjust percentage as needed - Reduced from 50% */
+        max-height: 450px; /* Optional: Reduced max height slightly */
         margin: auto; /* Center the video */
         display: block;
     }
