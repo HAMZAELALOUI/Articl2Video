@@ -1,0 +1,8 @@
+streamlit
+requests
+beautifulsoup4
+gTTS
+Pillow
+moviepy
+fal-client
+google-generativeai 
