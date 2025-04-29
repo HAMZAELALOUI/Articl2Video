@@ -74,15 +74,16 @@ def main():
     }
     .sidebar .sidebar-content {padding-top: 1rem;}
     .progress-bar {padding: 0.5rem 0;}
-    
+
     /* Control media display sizes */
-    /* Target video elements specifically within the main content area */
-    .main .block-container video {
-        max-width: 40%; /* Adjust percentage as needed - Reduced from 50% */
-        max-height: 450px; /* Optional: Reduced max height slightly */
-        margin: auto; /* Center the video */
-        display: block;
-    }
+    /* Remove specific video sizing - let column layout control it */
+    /* .main .block-container video { */
+    /*    max-width: 25%; */
+    /*    max-height: 350px; */
+    /*    margin: auto; */
+    /*    display: block; */
+    /* } */
+
     /* Ensure this doesn't affect image size too much */
     .stImage img {
         max-height: 600px !important;
@@ -1147,7 +1148,7 @@ def display_video_generation():
         st.success("✅ Vidéo générée avec succès!")
         
         # Create a centered container for the video
-        _, center_col, _ = st.columns([1, 2, 1])
+        _, center_col, _ = st.columns([7, 6, 7])
         with center_col:
             # Display the video with a controlled size
             st.video("cache/vid/final.mp4")
