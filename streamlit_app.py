@@ -76,10 +76,14 @@ def main():
     .progress-bar {padding: 0.5rem 0;}
     
     /* Control media display sizes */
-    .stVideo video {
-        max-height: 400px !important;
-        width: auto !important;
+    /* Target video elements specifically within the main content area */
+    .main .block-container video {
+        max-width: 70%; /* Adjust percentage as needed */
+        max-height: 500px; /* Optional: Limit height */
+        margin: auto; /* Center the video */
+        display: block;
     }
+    /* Ensure this doesn't affect image size too much */
     .stImage img {
         max-height: 600px !important;
         width: auto !important;

@@ -488,44 +488,10 @@ def add_text_to_image(text, image_path, output_path):
     except Exception as e:
         print(f"Could not add logo to video frame: {e}")
     
-    # Try to use Montserrat ExtraBold or similar modern sans-serif fonts
-    font_path = None
-    font_paths_to_try = [
-        # Montserrat family and similar modern sans-serif fonts
-        "Montserrat-ExtraBold.ttf",
-        "MontserratExtraBold.ttf",
-        "Montserrat-Bold.ttf",
-        "MontserratBold.ttf",
-        "ProximaNova-Bold.ttf",
-        "Gotham-Bold.ttf",
-        "GothamBold.ttf",
-        # Common system fonts as fallbacks
-        "Arial-BoldMT.ttf",
-        "arialbd.ttf",
-        "SegoeUI-Bold.ttf",
-        "segoeuib.ttf",
-        # Linux/Unix fonts
-        "/usr/share/fonts/truetype/montserrat/Montserrat-ExtraBold.ttf",
-        "/usr/share/fonts/truetype/proxima-nova/ProximaNova-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    ]
-    
-    # Find the first available font
-    for path in font_paths_to_try:
-        try:
-            # Try with full path
-            ImageFont.truetype(path, 10)
-            font_path = path
-            break
-        except:
-            try:
-                # Try with just the filename
-                ImageFont.truetype(os.path.basename(path), 10)
-                font_path = os.path.basename(path)
-                break
-            except:
-                continue
-    
+    # --- Font Loading START ---
+    # Use a specific bundled font file
+    bundled_font_path = "Montserrat-Bold.ttf"  # <<< MAKE SURE THIS MATCHES THE FONT FILE YOU ADDED
+
     # Determine safe margins based on frame existence
     left_margin = int(width * 0.15) if frame_exists else int(width * 0.08)
     right_margin = int(width * 0.20) if frame_exists else int(width * 0.10)  # Increase right margin
@@ -537,19 +503,18 @@ def add_text_to_image(text, image_path, output_path):
         left_margin = max(left_margin, frame_border_width + 30)
         right_margin = max(right_margin, frame_border_width + 50)  # Extra padding on right
         bottom_margin = max(bottom_margin, frame_border_width + 30)
-    
+
     # Calculate maximum width for text - use a more conservative width
     max_text_width = width - (left_margin + right_margin + 40)  # Extra 40px safety margin
-    
+
     # Set an upper limit to text height based on remaining vertical space
-    # (from logo area to bottom margin)
     max_text_height = height - top_margin - bottom_margin
-    
-    # Calculate font size adaptively based on available space and text length
-    # Start with default size but reduce if needed
+
+    # Calculate font size adaptively
     initial_font_size = max(int(width * 0.055), 46)
     font_size = initial_font_size
-    
+    font = None
+
     # More intelligent text wrapping based on actual pixel width
     def smart_wrap_text(text, font, max_width):
         """Wrap text using actual pixel measurements to maximize space usage"""
@@ -579,46 +544,93 @@ def add_text_to_image(text, image_path, output_path):
             lines.append(" ".join(current_line))
         
         return lines
+    # --- End of smart_wrap_text definition ---
+
 
     # Try to fit text with current font size, reduce if necessary
     text_too_large = True
     min_font_size = 30  # Don't go smaller than this
     attempt = 0
-    
+    final_font_path = None # Keep track of the font path that works
+
     while text_too_large and font_size > min_font_size and attempt < 5:
         attempt += 1
-        # Try this font size
-        if font_path:
+        try:
+            # Try loading the bundled font
+            font = ImageFont.truetype(bundled_font_path, font_size)
+            final_font_path = bundled_font_path # Font loaded successfully
+            print(f"Attempting to use bundled font: {final_font_path} at size {font_size}px")
+
+            # Use smart text wrapping based on pixel measurements
+            wrapped_lines = smart_wrap_text(text, font, max_text_width)
+
+            # Calculate total text height with this font
+            estimated_text_height = len(wrapped_lines) * font_size * 1.1 + (font_size * 1.2)  # Add padding
+
+            # Check if it fits in allowed vertical space
+            if estimated_text_height <= max_text_height:
+                text_too_large = False
+                print(f"Using font size {font_size}px after {attempt} attempts - text fits")
+            else:
+                # Reduce font size by 10% and try again
+                font_size = int(font_size * 0.9)
+                print(f"Reducing font size to {font_size}px - text too large")
+
+        except IOError:
+             # If bundled font fails, try a basic default as last resort
+            print(f"Error: Bundled font file '{bundled_font_path}' not found or cannot be opened.")
             try:
-                font = ImageFont.truetype(font_path, font_size)
-            except:
-                try:
-                    font = ImageFont.truetype("arialbd.ttf", font_size)
-                except:
-                    default_font = ImageFont.load_default()
-                    font = default_font.font_variant(size=font_size)
-        else:
-            try:
-                font = ImageFont.truetype("arialbd.ttf", font_size)
-            except:
-                default_font = ImageFont.load_default()
-                font = default_font.font_variant(size=font_size)
-        
-        # Use smart text wrapping based on pixel measurements
-        wrapped_lines = smart_wrap_text(text, font, max_text_width)
-        
-        # Calculate total text height with this font
-        estimated_text_height = len(wrapped_lines) * font_size * 1.1 + (font_size * 1.2)  # Add padding
-        
-        # Check if it fits in allowed vertical space
-        if estimated_text_height <= max_text_height:
-            text_too_large = False
-            print(f"Using font size {font_size}px after {attempt} attempts - text fits")
-        else:
-            # Reduce font size by 10% and try again
+                print(f"Falling back to Pillow's default font at size {font_size}px")
+                font = ImageFont.load_default().font_variant(size=font_size)
+                final_font_path = "Pillow Default"
+
+                # Use smart text wrapping based on pixel measurements
+                wrapped_lines = smart_wrap_text(text, font, max_text_width)
+                estimated_text_height = len(wrapped_lines) * font_size * 1.1 + (font_size * 1.2) # Add padding
+
+                if estimated_text_height <= max_text_height:
+                    text_too_large = False
+                    print(f"Using default font size {font_size}px - text fits")
+                else:
+                    font_size = int(font_size * 0.9)
+                    print(f"Reducing default font size to {font_size}px - text too large")
+
+            except Exception as e:
+                 # This should ideally not happen with load_default
+                 print(f"Critical Error: Could not load even the default font. Error: {e}")
+                 # Use a minimal font size with default font if possible
+                 font_size = min_font_size
+                 try:
+                     font = ImageFont.load_default().font_variant(size=font_size)
+                     final_font_path = "Pillow Default (Minimal)"
+                     text_too_large = False # Force exit loop
+                 except:
+                      # Absolute fallback - render will likely be poor
+                      print("ERROR: Unable to load any font.")
+                      font = ImageFont.load_default() # Smallest default
+                      final_font_path = "Pillow Default (Absolute Fallback)"
+                      text_too_large = False # Force exit loop
+            # If fallback is attempted, stop trying bundled font sizes
+            if final_font_path != bundled_font_path:
+                 text_too_large = False # Exit loop after fallback attempt
+
+
+        except Exception as e:
+            print(f"An unexpected error occurred during font loading: {e}")
+            # Reduce font size and try again, hoping it was size related
             font_size = int(font_size * 0.9)
-            print(f"Reducing font size to {font_size}px - text too large")
-    
+
+    # Ensure font is not None before proceeding
+    if font is None:
+        print("ERROR: Font object is None. Using absolute default.")
+        font = ImageFont.load_default()
+        final_font_path = "Pillow Default (Final Fallback)"
+        font_size = 20 # Use a small default size
+
+
+    print(f"Final font used: {final_font_path} at {font_size}px")
+    # --- Font Loading END ---
+
     # Get final text wrapping with the chosen font size
     lines = smart_wrap_text(text, font, max_text_width)
     
