@@ -1274,17 +1274,42 @@ def generate_video():
         progress_bar.progress(20)
         
         # Need to ensure the source images have text overlay
+        images_prepared = True # Flag to track if all images were prepared
         for i, (image_path, text) in enumerate(zip(frame_images, bullet_points)):
+            print(f"Processing frame {i+1}: source image path = {image_path}")
+            target_path = f"cache/clg/point_{i+1}.jpg"
             if os.path.exists(image_path):
-                # Add text overlay to the image and save directly to collage folder
-                target_path = f"cache/clg/point_{i+1}.jpg"
-                
-                # Use fully qualified function name
-                main.add_text_to_image(text, image_path, target_path)
-                print(f"Added text overlay and saved to {target_path}")
+                try:
+                    # Add text overlay to the image and save directly to collage folder
+                    print(f"  Applying text and saving to {target_path}...")
+                    main.add_text_to_image(text, image_path, target_path)
+                    # Verify the target file was created
+                    if not os.path.exists(target_path):
+                        print(f"  ERROR: Target file {target_path} was NOT created after add_text_to_image call.")
+                        images_prepared = False
+                        # Optionally break or continue depending on desired behavior
+                        # break
+                    else:
+                        print(f"  Successfully created {target_path}")
+                except Exception as img_proc_error:
+                     print(f"  ERROR processing image {image_path}: {img_proc_error}")
+                     images_prepared = False
+                     # Optionally break
+                     # break
             else:
-                print(f"Warning: Source image {image_path} not found!")
-        
+                print(f"  ERROR: Source image {image_path} not found! Cannot prepare frame {i+1}.")
+                images_prepared = False
+                # Optionally break
+                # break
+
+        # --- Check if all images were prepared before proceeding --- 
+        if not images_prepared:
+            st.error("Erreur critique: Échec de la préparation d'une ou plusieurs images. Impossible de générer la vidéo.")
+            # Stop execution or handle the error appropriately
+            return # Or raise an exception
+        else:
+            print("All source images processed successfully into cache/clg/")
+
         # Generate audio files if voiceover is enabled
         if add_voiceover:
             status_text.text("Génération des fichiers audio...")
