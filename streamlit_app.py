@@ -109,6 +109,8 @@ def main():
         st.session_state.article_text = ""
     if 'frame_images' not in st.session_state:
         st.session_state.frame_images = []
+    if 'frame_image_bytes' not in st.session_state:
+        st.session_state.frame_image_bytes = []
     if 'frame_audio' not in st.session_state:
         st.session_state.frame_audio = []
     if 'frame_durations' not in st.session_state:
@@ -353,12 +355,21 @@ def display_editing_interface():
             
             # Generate images for all bullet points at once
             with st.spinner("Génération des images..."):
-                frame_images = []
+                frame_images_paths = []
+                frame_image_bytes_list = []
                 for point in edited_points:
                     image_path = generate_image_for_text(point)
-                    frame_images.append(image_path)
-                
-                st.session_state.frame_images = frame_images
+                    frame_images_paths.append(image_path)
+                    # Read the generated image file and store its bytes
+                    try:
+                        with open(image_path, "rb") as f:
+                            frame_image_bytes_list.append(f.read())
+                    except Exception as e:
+                        st.error(f"Error reading generated image {image_path} for caching in state: {e}")
+                        frame_image_bytes_list.append(None) # Append None if reading fails
+
+                st.session_state.frame_images = frame_images_paths # Keep paths for generation
+                st.session_state.frame_image_bytes = frame_image_bytes_list # Store bytes for display
                 st.session_state.current_frame = 0
                 
                 # Initialize frame durations with default values
@@ -381,22 +392,34 @@ def display_frame_interface():
     st.subheader(f"Étape 3: Visualisation des slides ({current_frame + 1}/{total_frames})")
     
     # Display current frame
-    if current_frame < total_frames and current_frame < len(st.session_state.frame_images):
+    # Ensure we have paths AND bytes data
+    if (current_frame < total_frames and
+        current_frame < len(st.session_state.frame_images) and
+        current_frame < len(st.session_state.frame_image_bytes) and
+        st.session_state.frame_image_bytes[current_frame] is not None):
+
         col1, col2 = st.columns([2, 3])
-        
+
         with col1:
-            # Show the image
-            image_path = st.session_state.frame_images[current_frame]
-            if os.path.exists(image_path):
-                # Read the image from disk and display
-                img = read_image(image_path)
-                if img:
-                    st.image(img, caption=f"Slide {current_frame + 1}", use_container_width=True, width=300)
+            # --- Load image from bytes stored in session state --- 
+            try:
+                image_data = st.session_state.frame_image_bytes[current_frame]
+                img = Image.open(BytesIO(image_data))
+                st.image(img, caption=f"Slide {current_frame + 1}", use_container_width=True, width=300)
+            except Exception as e:
+                st.error(f"Erreur affichage image depuis cache mémoire: {e}")
+                # Fallback: try loading from path if bytes failed
+                image_path = st.session_state.frame_images[current_frame]
+                if os.path.exists(image_path):
+                    img_fallback = read_image(image_path)
+                    if img_fallback:
+                        st.image(img_fallback, caption=f"Slide {current_frame + 1} (depuis fichier)", use_container_width=True, width=300)
+                    else:
+                        st.warning(f"Image non disponible (fichier corrompu?) {image_path}")
                 else:
-                    st.warning(f"Image non disponible ou corrompue")
-            else:
-                st.warning(f"Image non disponible")
-                
+                     st.warning(f"Image non disponible (fichier non trouvé?) {image_path}")
+            # --- End image loading --- 
+
             # Add option to upload custom image
             st.markdown("---")
             st.markdown("#### Remplacer l'image")
@@ -452,14 +475,23 @@ def display_frame_interface():
                         from main import add_text_to_image
                         target_path = f"cache/img/point_{current_frame+1}.jpg"
                         add_text_to_image(st.session_state.bullet_points[current_frame], custom_image_path, target_path)
-                        
+
                         # Update the frame image path in session state
                         st.session_state.frame_images[current_frame] = target_path
-                        
+
+                        # --- Read the final image and update bytes in session state ---
+                        try:
+                            with open(target_path, "rb") as f:
+                                st.session_state.frame_image_bytes[current_frame] = f.read()
+                            print(f"Updated image bytes for frame {current_frame} from custom upload.")
+                        except Exception as read_error:
+                            st.error(f"Failed to read processed custom image for state update: {read_error}")
+                        # --- End update bytes ---
+
                         # Success message
                         st.success("✅ Image téléchargée et appliquée avec succès!")
                         st.rerun()
-                        
+
                     except Exception as e:
                         st.error(f"Erreur lors du traitement de l'image: {str(e)}")
 
@@ -504,9 +536,20 @@ def display_frame_interface():
                     with st.spinner("Génération d'une nouvelle image..."):
                         # Save the edited text first
                         st.session_state.bullet_points[current_frame] = edited_text
-                        
+
+                        # Force regenerate image and get path
                         new_image_path = generate_image_for_text(edited_text, force_regenerate=True)
-                        st.session_state.frame_images[current_frame] = new_image_path
+                        st.session_state.frame_images[current_frame] = new_image_path # Update path
+
+                        # --- Read the new image and update bytes in session state ---
+                        try:
+                            with open(new_image_path, "rb") as f:
+                                st.session_state.frame_image_bytes[current_frame] = f.read()
+                            print(f"Updated image bytes for frame {current_frame} from regeneration.")
+                        except Exception as read_error:
+                            st.error(f"Failed to read regenerated image for state update: {read_error}")
+                        # --- End update bytes ---
+
                         st.rerun()
             
             with action_col2:
@@ -517,12 +560,23 @@ def display_frame_interface():
                         with st.spinner("Restauration de l'image générée..."):
                             # Save the edited text first
                             st.session_state.bullet_points[current_frame] = edited_text
-                            
-                            # Remove custom image
-                            os.remove(f"cache/custom_img/frame_{current_frame}.jpg")
-                            # Regenerate the image
+
+                            # Remove custom image file reference if needed (optional)
+                            # os.remove(f"cache/custom_img/frame_{current_frame}.jpg")
+
+                            # Regenerate the image (force_regenerate=True needed)
                             new_image_path = generate_image_for_text(edited_text, force_regenerate=True)
-                            st.session_state.frame_images[current_frame] = new_image_path
+                            st.session_state.frame_images[current_frame] = new_image_path # Update path
+
+                            # --- Read the new image and update bytes in session state ---
+                            try:
+                                with open(new_image_path, "rb") as f:
+                                    st.session_state.frame_image_bytes[current_frame] = f.read()
+                                print(f"Updated image bytes for frame {current_frame} after removing custom.")
+                            except Exception as read_error:
+                                st.error(f"Failed to read restored image for state update: {read_error}")
+                            # --- End update bytes ---
+
                             st.rerun()
         
         # Navigation row - Moved outside the col1/col2 layout for better consistency
