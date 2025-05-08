@@ -12,11 +12,11 @@ from io import BytesIO
 import glob
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, VideoFileClip, CompositeAudioClip
 from moviepy.audio.AudioClip import AudioClip
-import fal_client
 import base64
 import google.generativeai as genai
 from json import loads
 import hashlib
+from openai import OpenAI  # Import OpenAI client
 
 # API Keys are expected to be set as environment variables
 # by the calling script (e.g., streamlit_app.py using st.secrets)
@@ -31,11 +31,9 @@ if not gemini_api_key:
 else:
     genai.configure(api_key=gemini_api_key)
 
-# Configure Fal Client
-# fal_client automatically uses the FAL_KEY environment variable if set.
-if not os.getenv("FAL_KEY"):
-    print("Warning: FAL_KEY environment variable not found. Fal API calls may fail.")
-    # raise ValueError("FAL_KEY not found in environment variables.") # Optional: raise error
+# Check for OpenAI API key
+if not os.getenv("OPENAI_API_KEY"):
+    print("Warning: OPENAI_API_KEY environment variable not found. Image generation calls may fail.")
 
 def scrape_text_from_url(url):
 
@@ -256,11 +254,68 @@ def text_to_speech(text, output_file, language):
 
 
 def on_queue_update(update):
-    if isinstance(update, fal_client.InProgress):
-        for log in update.logs:
-            print(log["message"])
+    # This function is no longer needed but kept for backwards compatibility
+    print(f"Processing update: {update}")
 
 
+
+def get_openai_api_key():
+    """
+    Try multiple approaches to get the OpenAI API key.
+    Returns the API key if found, None otherwise.
+    """
+    # Method 1: Try to get API key from environment variable
+    api_key = os.getenv("OPENAI_API_KEY")
+    
+    # Method 2: Check in streamlit secrets via os.environ
+    if not api_key and 'OPENAI_API_KEY' in os.environ:
+        api_key = os.environ['OPENAI_API_KEY']
+    
+    # Method 3: Try to read from .streamlit/secrets.toml directly
+    if not api_key:
+        try:
+            import toml
+            secrets_path = '.streamlit/secrets.toml'
+            if os.path.exists(secrets_path):
+                secrets = toml.load(secrets_path)
+                if 'OPENAI_API_KEY' in secrets:
+                    api_key = secrets['OPENAI_API_KEY']
+        except Exception as e:
+            print(f"Error reading secrets.toml: {e}")
+            
+    return api_key
+
+def setup_openai_api_key(key=None):
+    """
+    Set the OpenAI API key in the environment if provided, 
+    or try to read it from secrets or environment variables.
+    Returns True if successful, False otherwise.
+    """
+    if key:
+        os.environ["OPENAI_API_KEY"] = key
+        return True
+        
+    # Try from .streamlit/secrets.toml first (most direct for Streamlit apps)
+    try:
+        import toml
+        secrets_path = '.streamlit/secrets.toml'
+        if os.path.exists(secrets_path):
+            secrets = toml.load(secrets_path)
+            if 'OPENAI_API_KEY' in secrets:
+                os.environ["OPENAI_API_KEY"] = secrets['OPENAI_API_KEY']
+                print("Found OpenAI API key in secrets.toml")
+                return True
+    except Exception as e:
+        print(f"Error reading secrets.toml: {e}")
+        
+    # Fallback to other methods
+    api_key = get_openai_api_key()
+    if api_key:
+        os.getenv["OPENAI_API_KEY"] = api_key
+        print("Found OpenAI API key in environment variables")
+        return True
+    
+    return False
 
 def generate_image(text, output_file):
 
@@ -271,84 +326,102 @@ def generate_image(text, output_file):
     
     # Exactly as specified by user
     scene_prompt = (
-        f"Ultra-realistic 4K editorial photograph illustrating: {headline}. "
+        f"Ultra-realistic 4K editorial photograph press shot illustrating the following topic: {headline}. "
         "Symbolic, in-animate elements that visually convey the story; dramatic cinematic lighting, high contrast, deep shadows, news-photography style, vertical 9:16 composition. "
-        "Scene is completely deserted — absolutely no humans, silhouettes or body parts; no written text, logos, flags or religious symbols. "
-        "(face:0.05) (people:0.05) (portrait:0.05) (crowd:0.05) (text:0.05) (logo:0.05) (flag:0.05)"
+        "Scene is completely deserted — absolutely no humans, silhouettes or body parts; no written text, no logos, no flags or religious symbols.no public figures. "
     )
-
-    # Simple negative prompt since we have negative weights in the main prompt
-    negative_prompt = (
-        "person, human, face, people, portrait, profile, figure, "
-        "text, writing, lettering, words, characters, "
-        "religious symbol, flag, logo, watermark"
-    )
-    
+ 
     print(f"Generating image with user-specified prompt...")
 
-    # Maintain high quality parameters
-    result = fal_client.subscribe(
-        "fal-ai/flux/schnell",
-        arguments={
-            "prompt": scene_prompt,
-            "negative_prompt": negative_prompt,
-            "image_size": {
-            "width": 1080,
-            "height": 1920
-            },
-            "num_inference_steps": 6,
-            "num_images": 1,
-            "true_cfg": 9.0,
-            "guidance_scale": 1.5,
-            "quality": "premium",
-            "sync_mode": True,
-            "enable_safety_checker": True,
-    },
-        with_logs=True,
-        on_queue_update=on_queue_update,
-    )
-    
-    # Extract base64 data from the URL
-    image_url = result['images'][0]['url']
-    base64_data = image_url.split('base64,')[1]
-    
-    # Decode base64 image
-    image_data = base64.b64decode(base64_data)
-    # Create PIL Image
-    img = Image.open(BytesIO(image_data))
+    try:
+        # Try to get API key from environment or secrets
+        if not setup_openai_api_key():
+            raise ValueError("OpenAI API key not found in environment variables or secrets")
+            
+        # Initialize OpenAI client with API key from environment
+        client = OpenAI()
+        
+        # Call OpenAI's image generation with gpt-image-1 model
+        response = client.images.generate(
+            model="gpt-image-1",
+            prompt=scene_prompt,
+            n=1,
+            size="1024x1024",  # Use standard size first
+            quality="high",
+            output_format="png",  
+            moderation="auto",
+        )
+        
+        # Check if the response contains valid data
+        if not response.data or not hasattr(response.data[0], 'b64_json') or not response.data[0].b64_json:
+            raise ValueError("Invalid response from OpenAI API - missing base64 image data")
+        
+        # Extract base64 data from the response
+        image_bytes = base64.b64decode(response.data[0].b64_json)
+        
+        # Create PIL Image
+        img = Image.open(BytesIO(image_bytes))
 
-    # Create a new image with desired dimensions
-    target_width = 1080
-    target_height = 1920
+        # Create a new image with desired dimensions
+        target_width = 1080
+        target_height = 1920
 
-    # Calculate dimensions to maintain aspect ratio
-    original_aspect = img.width / img.height
-    target_aspect = target_width / target_height
+        # Calculate dimensions to maintain aspect ratio
+        original_aspect = img.width / img.height
+        target_aspect = target_width / target_height
 
-    if original_aspect > target_aspect:
-        # Original image is wider than target
-        new_width = int(target_height * original_aspect)
-        new_height = target_height
-        img = img.resize((new_width, new_height))
-        left = (new_width - target_width) // 2
-        img = img.crop((left, 0, left + target_width, target_height))
-    else:
-        # Original image is taller than target
-        new_height = int(target_width / original_aspect)
-        new_width = target_width
-        img = img.resize((new_width, new_height))
-        top = (new_height - target_height) // 2
-        img = img.crop((0, top, target_width, top + target_height))
+        if original_aspect > target_aspect:
+            # Original image is wider than target
+            new_width = int(target_height * original_aspect)
+            new_height = target_height
+            img = img.resize((new_width, new_height))
+            left = (new_width - target_width) // 2
+            img = img.crop((left, 0, left + target_width, target_height))
+        else:
+            # Original image is taller than target
+            new_height = int(target_width / original_aspect)
+            new_width = target_width
+            img = img.resize((new_width, new_height))
+            top = (new_height - target_height) // 2
+            img = img.crop((0, top, target_width, top + target_height))
 
-    # Convert back to bytes
-    img_byte_arr = BytesIO()
-    img.save(img_byte_arr, format='JPEG')
+        # Convert back to bytes
+        img_byte_arr = BytesIO()
+        img.save(img_byte_arr, format='JPEG')
 
-    with open(output_file, 'wb') as f:
-        f.write(img_byte_arr.getvalue())
-    print(f"Image saved to {output_file}")
-    
-    
+        with open(output_file, 'wb') as f:
+            f.write(img_byte_arr.getvalue())
+        print(f"Image saved to {output_file}")
+        
+    except Exception as e:
+        print(f"Error generating image: {str(e)}")
+        # Create a fallback gray image with the text
+        fallback_img = Image.new('RGB', (1080, 1920), color=(50, 50, 50))
+        draw = ImageDraw.Draw(fallback_img)
+        
+        # Try to wrap and draw the text on the fallback image
+        try:
+            font = ImageFont.truetype("Montserrat-Bold.ttf", 40)
+        except:
+            font = ImageFont.load_default()
+            
+        wrapped_text = textwrap.fill(headline, width=30)
+        text_color = (255, 255, 255)
+        
+        # Calculate text position to center it
+        text_bbox = draw.textbbox((0, 0), wrapped_text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+        position = ((1080 - text_width) // 2, (1920 - text_height) // 2)
+        
+        # Draw the text
+        draw.text(position, wrapped_text, font=font, fill=text_color)
+        
+        # Save the fallback image
+        fallback_img.save(output_file)
+        print(f"Saved fallback image to {output_file} due to error in image generation")
+
+
 
 
 
