@@ -44,7 +44,6 @@ htmlcov/
 .nox/
 .coverage
 .coverage.*
-.cache
 nosetests.xml
 coverage.xml
 *.cover
@@ -150,11 +149,3 @@ cython_debug/
 # Streamlit specific
 .streamlit/secrets.toml
 
-# Project specific cache/generated files
-cache/
-summary.json
-outro.png
-frame.png
-video_logo.png
-music.mp3
-# Add any other generated files you don't want tracked here 
