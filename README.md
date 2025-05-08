@@ -10,12 +10,28 @@ This application converts articles to videos by generating images with OpenAI's 
    pip install -r requirements.txt
    ```
 3. Set up your OpenAI API key in one of these ways:
-   - Create a `.streamlit/secrets.toml` file with your API key:
+   - Create a `.streamlit/secrets.toml` file with your API keys (recommended method):
      ```
      OPENAI_API_KEY = "your-openai-api-key"
+     GEMINI_API_KEY = "your-gemini-api-key"
      ```
-   - Set the `OPENAI_API_KEY` environment variable
-   - Use the utility script to apply your key: `python apply_api_key.py`
+   - Set these environment variables manually
+   - Use the utility script to apply your keys: `python apply_api_key.py`
+
+## API Keys Configuration
+
+This application requires API keys for two services:
+
+1. **OpenAI API Key**: Used for image generation with the GPT-image-1 model
+2. **Google Gemini API Key**: Used for article summarization and text processing
+
+To set up your API keys:
+
+1. Rename `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`
+2. Add your actual API keys to this file
+3. Run `python test_secrets.py` to verify your keys are set up correctly
+
+The application will check for these keys in your secrets.toml file before starting.
 
 ## Running the Application
 
@@ -43,7 +59,7 @@ This will generate a test image in the `test_output` directory.
 ## Troubleshooting
 
 ### API Key Issues
-- Run `python apply_api_key.py` to verify your API key is properly configured
+- Run `python test_secrets.py` to verify your API keys are properly configured
 - Check that your OpenAI account has access to the GPT-image-1 model
 - Ensure you have sufficient credits in your OpenAI account
 

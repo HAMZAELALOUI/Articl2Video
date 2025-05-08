@@ -311,7 +311,7 @@ def setup_openai_api_key(key=None):
     # Fallback to other methods
     api_key = get_openai_api_key()
     if api_key:
-        os.getenv["OPENAI_API_KEY"] = api_key
+        os.environ["OPENAI_API_KEY"] = api_key
         print("Found OpenAI API key in environment variables")
         return True
     
@@ -350,6 +350,7 @@ def generate_image(text, output_file):
             quality="high",
             output_format="png",  
             moderation="auto",
+            background="auto",
         )
         
         # Check if the response contains valid data

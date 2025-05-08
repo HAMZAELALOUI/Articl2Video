@@ -8,7 +8,7 @@ import uuid
 # Load secrets and set environment variables FIRST
 try:
     # Validate secrets existence
-    required_secrets = ["FAL_KEY", "GEMINI_API_KEY"]
+    required_secrets = ["OPENAI_API_KEY", "GEMINI_API_KEY"]
     missing_secrets = [key for key in required_secrets if key not in st.secrets]
     
     if missing_secrets:
@@ -16,11 +16,11 @@ try:
         st.stop()
         
     # Get secrets
-    fal_key = st.secrets["FAL_KEY"]
+    openai_key = st.secrets["OPENAI_API_KEY"]
     gemini_key = st.secrets["GEMINI_API_KEY"]
     
     # Set environment variables
-    os.environ["FAL_KEY"] = fal_key
+    os.environ["OPENAI_API_KEY"] = openai_key
     os.environ["GEMINI_API_KEY"] = gemini_key
     
 except Exception as e:
