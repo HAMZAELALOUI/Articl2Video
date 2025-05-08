@@ -1446,17 +1446,60 @@ def generate_image_for_text(text, force_regenerate=False):
     text (str): The text to generate an image for
     force_regenerate (bool): If True, regenerate the image even if it exists
     """
-    # Create a unique filename based on the hash of the text
-    text_hash = hashlib.md5(text.encode()).hexdigest()[:10]
-    output_file = f"cache/img/{text_hash}.jpg"
-    
-    # Check if the image already exists to avoid regenerating
-    if not force_regenerate and os.path.exists(output_file):
-        return output_file
-    
-    # If force_regenerate is True or the file doesn't exist, generate a new image
-    generate_image(text, output_file)
-    return output_file
+    try:
+        # Ensure cache directory exists
+        os.makedirs("cache/img/", exist_ok=True)
+        
+        # Create a unique filename based on the hash of the text
+        text_hash = hashlib.md5(text.encode()).hexdigest()[:10]
+        output_file = f"cache/img/{text_hash}.jpg"
+        
+        # Check if the image already exists to avoid regenerating
+        if not force_regenerate and os.path.exists(output_file):
+            print(f"Using cached image: {output_file}")
+            return output_file
+        
+        # If force_regenerate is True or the file doesn't exist, generate a new image
+        print(f"Generating new image for text: {text[:50]}...")
+        generate_image(text, output_file)
+        
+        # Verify the image was created
+        if os.path.exists(output_file):
+            print(f"Successfully generated image: {output_file}")
+            return output_file
+        else:
+            raise FileNotFoundError(f"Image generation failed - file not created: {output_file}")
+            
+    except Exception as e:
+        print(f"Error in generate_image_for_text: {str(e)}")
+        # Create a fallback image path
+        fallback_file = f"cache/img/fallback_{hashlib.md5(text.encode()).hexdigest()[:10]}.jpg"
+        
+        # Create fallback image
+        fallback_img = Image.new('RGB', (1080, 1920), color=(50, 50, 50))
+        draw = ImageDraw.Draw(fallback_img)
+        
+        try:
+            font = ImageFont.truetype("Montserrat-Bold.ttf", 40)
+        except:
+            font = ImageFont.load_default()
+            
+        wrapped_text = textwrap.fill(text, width=30)
+        text_color = (255, 255, 255)
+        
+        # Calculate text position to center it
+        text_bbox = draw.textbbox((0, 0), wrapped_text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+        position = ((1080 - text_width) // 2, (1920 - text_height) // 2)
+        
+        # Draw the text
+        draw.text(position, wrapped_text, font=font, fill=text_color)
+        
+        # Save the fallback image
+        fallback_img.save(fallback_file)
+        print(f"Created fallback image: {fallback_file}")
+        return fallback_file
 
 
 # Calculate dynamic shadow parameters based on font size and text prominence

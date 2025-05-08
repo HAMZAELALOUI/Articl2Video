@@ -306,43 +306,22 @@ def process_article_text():
 def display_editing_interface():
     """Step 2: Edit bullet points"""
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
-    st.subheader("Étape 2: Édition des points clés")
-    st.write("Modifiez les points principaux qui seront utilisés pour générer les slides")
     
-    if not st.session_state.bullet_points:
-        st.error("Aucun point n'a été généré. Veuillez revenir à l'étape précédente.")
-        if st.button("Retour à l'étape 1"):
-            st.session_state.current_step = 1
-            st.rerun()
-        return
+    st.subheader("Étape 2: Édition des points")
     
-    # Display all bullet points for editing
+    # Get the edited points
     edited_points = []
     for i, point in enumerate(st.session_state.bullet_points):
-        edited_point = st.text_area(f"Point {i+1}", value=point, key=f"point_{i}")
+        edited_point = st.text_area(
+            f"Point {i+1}",
+            value=point,
+            key=f"point_{i}",
+            height=100
+        )
         edited_points.append(edited_point)
     
+    # Create columns for the continue button
     col1, col2, col3 = st.columns([1, 1, 1])
-    
-    with col1:
-        if st.button("⬅️ Retour", use_container_width=True):
-            st.session_state.current_step = 1
-            st.rerun()
-    
-    with col2:
-        if st.button("🔄 Régénérer", use_container_width=True):
-            with st.spinner("Régénération du résumé..."):
-                llm_response = call_llm_api(
-                    st.session_state.article_text, 
-                    st.session_state.slidenumber, 
-                    st.session_state.wordnumber, 
-                    st.session_state.language
-                )
-                Json = save_and_clean_json(llm_response, "summary.json")
-                st.session_state.generated_summary = Json
-                if 'summary' in Json:
-                    st.session_state.bullet_points = [fix_unicode(point) for point in Json['summary']]
-                    st.rerun()
     
     with col3:
         if st.button("Continuer ➡️", use_container_width=True):
@@ -355,29 +334,44 @@ def display_editing_interface():
             
             # Generate images for all bullet points at once
             with st.spinner("Génération des images..."):
-                frame_images_paths = []
-                frame_image_bytes_list = []
-                for point in edited_points:
-                    image_path = generate_image_for_text(point)
-                    frame_images_paths.append(image_path)
-                    # Read the generated image file and store its bytes
-                    try:
-                        with open(image_path, "rb") as f:
-                            frame_image_bytes_list.append(f.read())
-                    except Exception as e:
-                        st.error(f"Error reading generated image {image_path} for caching in state: {e}")
-                        frame_image_bytes_list.append(None) # Append None if reading fails
-
-                st.session_state.frame_images = frame_images_paths # Keep paths for generation
-                st.session_state.frame_image_bytes = frame_image_bytes_list # Store bytes for display
-                st.session_state.current_frame = 0
-                
-                # Initialize frame durations with default values
-                st.session_state.frame_durations = [3.0] * len(edited_points)
-                
-                # Move to the next step
-                st.session_state.current_step = 3
-                st.rerun()
+                try:
+                    # Ensure cache directories exist
+                    os.makedirs("cache/img/", exist_ok=True)
+                    os.makedirs("cache/clg/", exist_ok=True)
+                    
+                    frame_images_paths = []
+                    frame_image_bytes_list = []
+                    
+                    for i, point in enumerate(edited_points):
+                        # Generate image
+                        image_path = generate_image_for_text(point)
+                        frame_images_paths.append(image_path)
+                        
+                        # Read the generated image file and store its bytes
+                        try:
+                            with open(image_path, "rb") as f:
+                                image_bytes = f.read()
+                                frame_image_bytes_list.append(image_bytes)
+                                print(f"Successfully cached image {i+1} in session state")
+                        except Exception as e:
+                            st.error(f"Error reading generated image {image_path}: {e}")
+                            frame_image_bytes_list.append(None)
+                    
+                    # Update session state
+                    st.session_state.frame_images = frame_images_paths
+                    st.session_state.frame_image_bytes = frame_image_bytes_list
+                    st.session_state.current_frame = 0
+                    
+                    # Initialize frame durations with default values
+                    st.session_state.frame_durations = [3.0] * len(edited_points)
+                    
+                    # Move to the next step
+                    st.session_state.current_step = 3
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Error during image generation: {str(e)}")
+                    st.stop()
     
     st.markdown('</div>', unsafe_allow_html=True)
 
