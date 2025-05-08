@@ -1254,14 +1254,23 @@ def generate_video():
         print(f"Debug: Voiceover enabled: {add_voiceover}")
         print(f"Debug: Music enabled: {add_music}")
         print(f"Debug: Language: {language}")
+        print(f"Debug: Number of frames: {len(frame_images)}")
+        print(f"Debug: Number of bullet points: {len(bullet_points)}")
         
-        # Instead of regenerating images, copy the pre-generated images to the collage directory
-        os.makedirs("cache/clg/", exist_ok=True)
+        # Create all necessary directories with explicit existence check
+        for dir_path in ["cache", "cache/img", "cache/clg", "cache/aud", "cache/vid", "cache/custom"]:
+            if not os.path.exists(dir_path):
+                print(f"Creating directory: {dir_path}")
+                os.makedirs(dir_path, exist_ok=True)
         
         # Clear existing collage directory to avoid old images
         for file in os.listdir("cache/clg/"):
             if file.endswith(".jpg"):
-                os.remove(os.path.join("cache/clg/", file))
+                try:
+                    os.remove(os.path.join("cache/clg/", file))
+                    print(f"Removed old file: {file} from cache/clg/")
+                except Exception as e:
+                    print(f"Warning: Failed to remove old file {file}: {e}")
         
         # Copy existing images to collage directory in the correct order
         status_text.text("Préparation des images...")
@@ -1269,38 +1278,173 @@ def generate_video():
         
         # Need to ensure the source images have text overlay
         images_prepared = True # Flag to track if all images were prepared
+        image_preparation_errors = []
+        
+        if not frame_images or len(frame_images) == 0:
+            error_msg = "Erreur: Aucune image trouvée. Veuillez générer des images avant de créer la vidéo."
+            status_text.text(error_msg)
+            st.error(error_msg)
+            return
+        
+        # Try to use bytes from session state if available
+        use_bytes_from_state = (
+            'frame_image_bytes' in st.session_state and 
+            len(st.session_state.frame_image_bytes) == len(frame_images) and
+            all(bytes is not None for bytes in st.session_state.frame_image_bytes)
+        )
+        
+        print(f"Debug: Using image bytes from session state: {use_bytes_from_state}")
+        
         for i, (image_path, text) in enumerate(zip(frame_images, bullet_points)):
             print(f"Processing frame {i+1}: source image path = {image_path}")
             target_path = f"cache/clg/point_{i+1}.jpg"
-            if os.path.exists(image_path):
-                try:
+            
+            try:
+                # First check if the source image exists
+                if not os.path.exists(image_path):
+                    print(f"Warning: Source image {image_path} not found!")
+                    
+                    # Try to recreate the image from session state bytes if available
+                    if use_bytes_from_state and i < len(st.session_state.frame_image_bytes):
+                        try:
+                            print(f"Attempting to recover image {i+1} from session state bytes")
+                            image_bytes = st.session_state.frame_image_bytes[i]
+                            if image_bytes:
+                                with open(image_path, "wb") as f:
+                                    f.write(image_bytes)
+                                print(f"Successfully recovered image from session state bytes: {image_path}")
+                            else:
+                                print(f"Error: No valid bytes found in session state for image {i+1}")
+                        except Exception as bytes_error:
+                            print(f"Error recovering image from bytes: {bytes_error}")
+                    
+                    # If we still don't have the source image, try to generate a new one
+                    if not os.path.exists(image_path):
+                        print(f"Attempting to regenerate image {i+1} for text: {text[:30]}...")
+                        # Generate a new image
+                        new_image_path = main.generate_image_for_text(text, force_regenerate=True)
+                        # Update the path
+                        image_path = new_image_path
+                        # Update in session state
+                        if i < len(st.session_state.frame_images):
+                            st.session_state.frame_images[i] = new_image_path
+                
+                # Now check again if we have a valid source image
+                if os.path.exists(image_path):
                     # Add text overlay to the image and save directly to collage folder
                     print(f"  Applying text and saving to {target_path}...")
-                    main.add_text_to_image(text, image_path, target_path)
+                    
+                    # Create a copy of the image first to avoid modifying the original
+                    from PIL import Image
+                    img = Image.open(image_path)
+                    temp_path = f"cache/img/temp_{i+1}.jpg"
+                    img.save(temp_path)
+                    
+                    # Now add text to the copy
+                    main.add_text_to_image(text, temp_path, target_path)
+                    
                     # Verify the target file was created
                     if not os.path.exists(target_path):
-                        print(f"  ERROR: Target file {target_path} was NOT created after add_text_to_image call.")
+                        error_msg = f"Target file {target_path} was NOT created after add_text_to_image call."
+                        print(f"  ERROR: {error_msg}")
+                        image_preparation_errors.append(error_msg)
                         images_prepared = False
-                        # Optionally break or continue depending on desired behavior
-                        # break
                     else:
                         print(f"  Successfully created {target_path}")
-                except Exception as img_proc_error:
-                     print(f"  ERROR processing image {image_path}: {img_proc_error}")
-                     images_prepared = False
-                     # Optionally break
-                     # break
-            else:
-                print(f"  ERROR: Source image {image_path} not found! Cannot prepare frame {i+1}.")
+                        
+                        # Optionally clean up the temp file
+                        try:
+                            if os.path.exists(temp_path):
+                                os.remove(temp_path)
+                        except:
+                            pass
+                else:
+                    error_msg = f"Source image {image_path} not found after recovery attempts!"
+                    print(f"  ERROR: {error_msg}")
+                    image_preparation_errors.append(error_msg)
+                    images_prepared = False
+                    
+                    # Create a fallback image with text
+                    print(f"  Creating fallback image for {target_path}...")
+                    try:
+                        # Generate a fallback image with the text
+                        from PIL import Image, ImageDraw, ImageFont
+                        import textwrap
+                        
+                        fallback_img = Image.new('RGB', (1080, 1920), color=(50, 50, 50))
+                        draw = ImageDraw.Draw(fallback_img)
+                        
+                        try:
+                            # Try to load a font
+                            font = ImageFont.truetype("Montserrat-Bold.ttf", 40)
+                        except:
+                            # Use default font if custom font fails
+                            font = ImageFont.load_default()
+                            
+                        wrapped_text = textwrap.fill(text, width=30)
+                        text_color = (255, 255, 255)
+                        
+                        # Calculate text position to center it
+                        text_bbox = draw.textbbox((0, 0), wrapped_text, font=font)
+                        text_width = text_bbox[2] - text_bbox[0]
+                        text_height = text_bbox[3] - text_bbox[1]
+                        position = ((1080 - text_width) // 2, (1920 - text_height) // 2)
+                        
+                        # Draw the text
+                        draw.text(position, wrapped_text, font=font, fill=text_color)
+                        
+                        # Save the fallback image
+                        fallback_img.save(target_path)
+                        print(f"  Created fallback image: {target_path}")
+                    except Exception as fallback_error:
+                        print(f"  Failed to create fallback image: {fallback_error}")
+                    
+            except Exception as img_proc_error:
+                error_msg = f"Error processing image {image_path}: {img_proc_error}"
+                print(f"  ERROR: {error_msg}")
+                image_preparation_errors.append(error_msg)
                 images_prepared = False
-                # Optionally break
-                # break
+                
+                # Try to create a fallback image
+                try:
+                    from PIL import Image, ImageDraw, ImageFont
+                    import textwrap
+                    
+                    fallback_img = Image.new('RGB', (1080, 1920), color=(50, 50, 50))
+                    draw = ImageDraw.Draw(fallback_img)
+                    
+                    try:
+                        font = ImageFont.truetype("Montserrat-Bold.ttf", 40)
+                    except:
+                        font = ImageFont.load_default()
+                        
+                    wrapped_text = textwrap.fill(text, width=30)
+                    text_color = (255, 255, 255)
+                    
+                    # Calculate text position to center it
+                    text_bbox = draw.textbbox((0, 0), wrapped_text, font=font)
+                    text_width = text_bbox[2] - text_bbox[0]
+                    text_height = text_bbox[3] - text_bbox[1]
+                    position = ((1080 - text_width) // 2, (1920 - text_height) // 2)
+                    
+                    # Draw the text
+                    draw.text(position, wrapped_text, font=font, fill=text_color)
+                    
+                    # Save the fallback image
+                    fallback_img.save(target_path)
+                    print(f"  Created fallback image for {target_path} due to processing error")
+                except Exception as e:
+                    print(f"  Failed to create fallback image: {e}")
 
-        # --- Check if all images were prepared before proceeding --- 
+        # Check image preparation before continuing
         if not images_prepared:
-            st.error("Erreur critique: Échec de la préparation d'une ou plusieurs images. Impossible de générer la vidéo.")
-            # Stop execution or handle the error appropriately
-            return # Or raise an exception
+            # Continue anyway with a warning
+            warning_msg = "Attention: Certaines images n'ont pas été préparées correctement. Des images de secours seront utilisées."
+            print(warning_msg)
+            print(f"Image preparation errors: {image_preparation_errors}")
+            status_text.text(warning_msg)
+            st.warning(warning_msg)
+            # Continue with the video generation
         else:
             print("All source images processed successfully into cache/clg/")
 
@@ -1313,7 +1457,10 @@ def generate_video():
             os.makedirs("cache/aud/", exist_ok=True)
             for file in os.listdir("cache/aud/"):
                 if file.endswith(".mp3"):
-                    os.remove(os.path.join("cache/aud/", file))
+                    try:
+                        os.remove(os.path.join("cache/aud/", file))
+                    except Exception as e:
+                        print(f"Warning: Failed to remove audio file: {e}")
             
             # Generate audio for each bullet point
             for i, text in enumerate(bullet_points):
@@ -1321,22 +1468,31 @@ def generate_video():
                 # Should be "point_1.mp3", "point_2.mp3", etc.
                 audio_path = f"cache/aud/point_{i+1}.mp3"
                 
-                print(f"Generating audio for point {i+1}: {text[:30]}...")
-                main.text_to_speech(text, audio_path, language.lower())
-                
-                # Verify the audio file was created
-                if os.path.exists(audio_path):
-                    print(f"✓ Audio file created: {audio_path}")
-                else:
-                    print(f"✗ Failed to create audio file: {audio_path}")
+                try:
+                    print(f"Generating audio for point {i+1}: {text[:30]}...")
+                    main.text_to_speech(text, audio_path, language.lower())
+                    
+                    # Verify the audio file was created
+                    if os.path.exists(audio_path):
+                        print(f"✓ Audio file created: {audio_path}")
+                    else:
+                        print(f"✗ Failed to create audio file: {audio_path}")
+                except Exception as audio_error:
+                    print(f"Error generating audio for point {i+1}: {audio_error}")
         
         # Generate the video
         status_text.text("Création de la vidéo finale...")
         progress_bar.progress(70)
         
+        # Make sure we have the generated summary
+        generated_summary = st.session_state.generated_summary
+        if not generated_summary or 'summary' not in generated_summary:
+            # Create a temporary summary structure if needed
+            generated_summary = {'summary': bullet_points}
+        
         # Call do_work with the necessary parameters, but don't regenerate images
         main.do_work(
-            st.session_state.generated_summary, 
+            generated_summary, 
             language.lower(),  # Make sure language is lowercase to match expected format
             add_voiceover,     # Explicitly pass boolean value
             add_music,         # Explicitly pass boolean value
@@ -1344,6 +1500,10 @@ def generate_video():
             st.session_state.auto_duration,
             skip_image_generation=True  # Add a parameter to skip regenerating images
         )
+        
+        # Check if the video was actually created
+        if not os.path.exists("cache/vid/final.mp4"):
+            raise FileNotFoundError("Le fichier vidéo final n'a pas été créé. Vérifiez les logs pour plus de détails.")
         
         # Final progress update
         progress_bar.progress(100)
@@ -1355,7 +1515,8 @@ def generate_video():
     except Exception as e:
         progress_bar.empty()
         status_text.empty()
-        st.error(f"Erreur lors de la génération de la vidéo: {str(e)}")
+        error_msg = f"Erreur lors de la génération de la vidéo: {str(e)}"
+        st.error(error_msg)
         print(f"Video generation error: {str(e)}")
         import traceback
         traceback.print_exc()
