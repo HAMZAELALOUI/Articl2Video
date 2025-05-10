@@ -56,10 +56,12 @@ def call_llm_api(article_text, slidenumber, wordnumber, language):
         Task: You are an LLM in JSON mode now, you generate directly a JSON, no more, no less, where you summarize this article in {slidenumber} bullet points in a journalist narrative reporting style format that highlight the main key points from the article, and keep the coherence between each bullet point like a story video content, make it in {language} and don't use Unicodes like "u00e9" put a real "é".
         
         NB: Make {slidenumber} short bullet points (around {wordnumber} words max per each) in a narrative style like a reporter and all these bullet points summarize and narrate it in a great way that gives the user a great general idea about the article and don't miss the main ideas but try to keep the flow running and coherence between each bullet point in a way where you can read them and feel like you are reading one article. And there is {slidenumber} bullet points and don't forget that you need to generate a {language} text.
+
+        IMPORTANT: For each bullet point, identify 1-3 key words or short phrases and put them in double quotes like "this". These quoted words will be highlighted in green in the final video. IMPORTANT: Make sure to escape these quotes in the JSON to avoid parser errors. Use \\" for quotes within the text.
         
-        Example: {{"summary": ["Bullet point 1", "Bullet point 2", "Bullet point 3",...], "Total": "x", "Tone": "Tone of the best voice over for it"}}
+        Example: {{"summary": ["Le Ministre de l'Agriculture a annoncé une récolte \\"exceptionnelle\\" cette année, avec une hausse de \\"20%\\" par rapport à 2022.", "Point 2 avec \\"mots clés\\" importants", "Point 3 avec \\"terme important\\" en évidence",...], "Total": "x", "Tone": "Tone of the best voice over for it"}}
         
-        IMPORTANT: The article text is the only input you have, you can't use any other data or information, you can't use any other source or external data. Don't hallucinate, don't imagine, don't make up, don't add, don't remove, don't change, don't modify, don't do anything else, just summarize the article in bullet points format that highlight the main key points from the article, no Unicodes, and do it in {language} and Focus on Generating the right characters and not giving Unicode like in French use é,à,è,ù... please never generate Unicodes, and for numbers don't put a "." like in "1.600" write directly "1600"; and if mentioned use "S.M. ..." for King Mohammed VI. and generate only the JSON no intro no outro no nothing else, just the JSON, no more, no less.'''
+        IMPORTANT: The article text is the only input you have, you can't use any other data or information, you can't use any other source or external data. Don't hallucinate, don't imagine, don't make up, don't add, don't remove, don't change, don't modify, don't do anything else, just summarize the article in bullet points format that highlight the main key points from the article, no Unicodes, and do it in {language} and Focus on Generating the right characters and not giving Unicode like in French use é,à,è,ù... please never generate Unicodes, and for numbers don't put a "." like in "1.600" write directly "1600"; and if mentioned use "S.M. ..." for King Mohammed VI. and generate only the JSON no intro no outro no nothing else, just the JSON with properly escaped quotes, no more, no less.'''
         
         # Create a Gemini model instance
         model = genai.GenerativeModel('gemini-2.0-flash')
@@ -75,8 +77,18 @@ def call_llm_api(article_text, slidenumber, wordnumber, language):
         elif "```" in json_text:
             json_text = json_text.split("```")[1].strip()
             
+        # Fix potential JSON issues with quotes
+        json_text = fix_json_quotes(json_text)
+            
         # Parse the JSON text
-        result = loads(json_text)
+        try:
+            result = loads(json_text)
+        except json.JSONDecodeError as e:
+            # If JSON parsing fails, try some additional cleanup
+            print(f"JSON parsing error: {e}. Attempting additional cleanup...")
+            json_text = additional_json_cleanup(json_text)
+            result = loads(json_text)  # Try parsing again
+
         return result
         
     except Exception as e:
@@ -89,23 +101,131 @@ def call_llm_api(article_text, slidenumber, wordnumber, language):
         }
 
 
-def save_and_clean_json(response, file_path):
-    # First, handle the case where response is a string
-    if isinstance(response, str):
-        response = json.loads(response.replace('\n', '').replace('\\', ''))
+def fix_json_quotes(json_text):
+    """Fix issues with quotes in JSON text that might cause parsing errors"""
+    # Replace unescaped quotes within quotes with escaped quotes
+    # This is a complex problem, but we'll try a simple approach
     
-    # If response is a dict and contains 'response' key
-    if isinstance(response, dict) and 'response' in response:
-        response = response['response']
-        # If response is still a string, parse it
-        if isinstance(response, str):
-            response = json.loads(response.replace('\n', '').replace('\\', ''))
+    # First convert any pairs of escaped quotes to a temporary marker
+    temp_marker = "%%ESCAPED_QUOTE%%"
+    json_text = json_text.replace('\\"', temp_marker)
+    
+    # Find all string values in JSON and fix any unescaped quotes within them
+    fixed_parts = []
+    i = 0
+    in_string = False
+    start_quote_pos = -1
+    
+    while i < len(json_text):
+        if json_text[i] == '"' and (i == 0 or json_text[i-1] != '\\'):
+            # This is an unescaped quote
+            if not in_string:
+                # Start of a string
+                in_string = True
+                start_quote_pos = i
+                fixed_parts.append(json_text[i])
+            else:
+                # End of a string
+                in_string = False
+                fixed_parts.append(json_text[i])
+        elif json_text[i] == '"' and in_string and json_text[i-1] != '\\':
+            # This is an unescaped quote within a string - escape it
+            fixed_parts.append('\\"')
+        else:
+            fixed_parts.append(json_text[i])
+        i += 1
+    
+    # Convert back the temporary markers to properly escaped quotes
+    json_text = ''.join(fixed_parts).replace(temp_marker, '\\"')
+    
+    # As a fallback, try a simpler regex approach
+    # This should catch most of the common cases
+    try:
+        # Find parts that look like: "text "inner quote" more text"
+        # and replace with: "text \"inner quote\" more text"
+        json_text = re.sub(r'(?<="[^"]*)"([^"]*)"(?=[^"]*")', r'\\\"\1\\\"', json_text)
+    except Exception as e:
+        print(f"Regex cleanup failed: {e}")
+    
+    return json_text
 
-    # Write the cleaned JSON to file
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(response, f, ensure_ascii=False, indent=4)
+
+def additional_json_cleanup(json_text):
+    """Apply additional cleanup to try to fix broken JSON"""
+    # Fix common issues with nested quotes
     
-    return response
+    try:
+        # Sometimes the model adds unnecessary escaping to already escaped quotes
+        json_text = json_text.replace('\\\\"', '\\"')
+        
+        # Fix any brackets or braces that don't have matching pairs
+        # Count the brackets and braces
+        open_curly = json_text.count('{')
+        close_curly = json_text.count('}')
+        open_square = json_text.count('[')
+        close_square = json_text.count(']')
+        
+        # If there are more opening than closing brackets, add the missing ones at the end
+        if open_curly > close_curly:
+            json_text += '}' * (open_curly - close_curly)
+        if open_square > close_square:
+            json_text += ']' * (open_square - close_square)
+            
+        # Remove trailing commas before closing brackets or braces (common JSON error)
+        json_text = re.sub(r',\s*}', '}', json_text)
+        json_text = re.sub(r',\s*]', ']', json_text)
+        
+        # Try to fix unescaped quotes in strings using regex patterns
+        # This pattern looks for quoted strings and attempts to fix inner quotes
+        json_text = re.sub(r'(?<="[^"\\]*)"(?=[^"\\]*")', r'\\"', json_text)
+        
+        # For debugging purposes
+        print(f"Cleaned JSON: {json_text[:100]}...")
+    except Exception as e:
+        print(f"Error in additional JSON cleanup: {e}")
+    
+    return json_text
+
+
+def save_and_clean_json(response, file_path):
+    try:
+        # First, handle the case where response is a string
+        if isinstance(response, str):
+            # Try to fix potential JSON issues before parsing
+            try:
+                response = fix_json_quotes(response)
+                response = json.loads(response.replace('\n', '').replace('\\', ''))
+            except json.JSONDecodeError:
+                # If that fails, try more aggressive cleanup
+                cleaned_response = additional_json_cleanup(response.replace('\n', ''))
+                response = json.loads(cleaned_response)
+        
+        # If response is a dict and contains 'response' key
+        if isinstance(response, dict) and 'response' in response:
+            response = response['response']
+            # If response is still a string, parse it
+            if isinstance(response, str):
+                try:
+                    response = fix_json_quotes(response)
+                    response = json.loads(response.replace('\n', '').replace('\\', ''))
+                except json.JSONDecodeError:
+                    # If that fails, try more aggressive cleanup
+                    cleaned_response = additional_json_cleanup(response.replace('\n', ''))
+                    response = json.loads(cleaned_response)
+
+        # Write the cleaned JSON to file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(response, f, ensure_ascii=False, indent=4)
+        
+        return response
+    except Exception as e:
+        print(f"Error saving and cleaning JSON: {str(e)}")
+        # Return a fallback response with error message
+        return {
+            "summary": [f"Error processing response: {str(e)}"],
+            "Total": "0",
+            "Tone": "Neutral"
+        }
 
 
 def fix_unicode(text):
@@ -616,8 +736,11 @@ def add_text_to_image(text, image_path, output_path):
         print(f"Could not add logo to video frame: {e}")
     
     # --- Font Loading START ---
-    # Use a specific bundled font file
-    bundled_font_path = "Montserrat-Bold.ttf"  # <<< MAKE SURE THIS MATCHES THE FONT FILE YOU ADDED
+    # Try to load Leelawadee Bold from system fonts first (Windows has it by default)
+    # or fall back to the bundled TTF file
+    system_font_names = ["Leelawadee Bold", "Leelawadee UI Bold", "Arial Bold", "Segoe UI Bold"]
+    bundled_font_path = "fonts/Leelawadee Bold.ttf"
+    final_font_path = None
 
     # Determine safe margins based on frame existence
     left_margin = int(width * 0.15) if frame_exists else int(width * 0.08)
@@ -683,10 +806,31 @@ def add_text_to_image(text, image_path, output_path):
     while text_too_large and font_size > min_font_size and attempt < 5:
         attempt += 1
         try:
-            # Try loading the bundled font
-            font = ImageFont.truetype(bundled_font_path, font_size)
-            final_font_path = bundled_font_path # Font loaded successfully
-            print(f"Attempting to use bundled font: {final_font_path} at size {font_size}px")
+            # Try system fonts first in order of preference
+            font_loaded = False
+            for system_font in system_font_names:
+                try:
+                    font = ImageFont.truetype(system_font, font_size)
+                    final_font_path = system_font
+                    font_loaded = True
+                    print(f"Using system font: {system_font} at size {font_size}px")
+                    break
+                except Exception:
+                    continue  # Try next font in list
+                    
+            # If system fonts failed, try bundled font file
+            if not font_loaded and os.path.exists(bundled_font_path):
+                font = ImageFont.truetype(bundled_font_path, font_size)
+                final_font_path = bundled_font_path
+                font_loaded = True
+                print(f"Using bundled font: {bundled_font_path} at size {font_size}px")
+                
+            # If still no success, use default font
+            if not font_loaded:
+                font = ImageFont.load_default().font_variant(size=font_size)
+                final_font_path = "Default font"
+                font_loaded = True
+                print(f"Using default font at size {font_size}px")
 
             # Use smart text wrapping based on pixel measurements
             wrapped_lines = smart_wrap_text(text, font, max_text_width)
@@ -703,49 +847,20 @@ def add_text_to_image(text, image_path, output_path):
                 font_size = int(font_size * 0.9)
                 print(f"Reducing font size to {font_size}px - text too large")
 
-        except IOError:
-             # If bundled font fails, try a basic default as last resort
-            print(f"Error: Bundled font file '{bundled_font_path}' not found or cannot be opened.")
-            try:
-                print(f"Falling back to Pillow's default font at size {font_size}px")
-                font = ImageFont.load_default().font_variant(size=font_size)
-                final_font_path = "Pillow Default"
-
-                # Use smart text wrapping based on pixel measurements
-                wrapped_lines = smart_wrap_text(text, font, max_text_width)
-                estimated_text_height = len(wrapped_lines) * font_size * 1.1 + (font_size * 1.2) # Add padding
-
-                if estimated_text_height <= max_text_height:
-                    text_too_large = False
-                    print(f"Using default font size {font_size}px - text fits")
-                else:
-                    font_size = int(font_size * 0.9)
-                    print(f"Reducing default font size to {font_size}px - text too large")
-
-            except Exception as e:
-                 # This should ideally not happen with load_default
-                 print(f"Critical Error: Could not load even the default font. Error: {e}")
-                 # Use a minimal font size with default font if possible
-                 font_size = min_font_size
-                 try:
-                     font = ImageFont.load_default().font_variant(size=font_size)
-                     final_font_path = "Pillow Default (Minimal)"
-                     text_too_large = False # Force exit loop
-                 except:
-                      # Absolute fallback - render will likely be poor
-                      print("ERROR: Unable to load any font.")
-                      font = ImageFont.load_default() # Smallest default
-                      final_font_path = "Pillow Default (Absolute Fallback)"
-                      text_too_large = False # Force exit loop
-            # If fallback is attempted, stop trying bundled font sizes
-            if final_font_path != bundled_font_path:
-                 text_too_large = False # Exit loop after fallback attempt
-
-
         except Exception as e:
-            print(f"An unexpected error occurred during font loading: {e}")
-            # Reduce font size and try again, hoping it was size related
+            print(f"Error during font loading: {e}")
+            # Reduce font size and try again
             font_size = int(font_size * 0.9)
+            # If all attempts fail with current font size, try using default font
+            try:
+                font = ImageFont.load_default().font_variant(size=font_size)
+                final_font_path = "Default font"
+                print(f"Falling back to default font at size {font_size}px")
+            except:
+                print("ERROR: Unable to load any font.")
+                font = ImageFont.load_default()
+                final_font_path = "Default font (Minimal)"
+                font_size = 20  # Use a small default size
 
     # Ensure font is not None before proceeding
     if font is None:
@@ -877,7 +992,7 @@ def add_text_to_image(text, image_path, output_path):
                         
                         # Draw the text in the appropriate color
                         if color == "green":
-                            draw.text((current_x, line_y), part_text, font=font, fill="#59C532")
+                            draw.text((current_x, line_y), part_text, font=font, fill="#79C910")
                         else:
                             draw.text((current_x, line_y), part_text, font=font, fill="#FFFFFF")
                         
@@ -951,7 +1066,7 @@ def add_text_to_image(text, image_path, output_path):
                     
                     # Draw the text in the appropriate color
                     if color == "green":
-                        draw.text((current_x, line_y), part_text, font=font, fill="#59C532")
+                        draw.text((current_x, line_y), part_text, font=font, fill="#79C910")
                     else:
                         draw.text((current_x, line_y), part_text, font=font, fill="#FFFFFF")
                     

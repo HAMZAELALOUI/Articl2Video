@@ -52,6 +52,9 @@ def main():
         initial_sidebar_state="expanded"
     )
     
+    # Ensure Leelawadee Bold font is available
+    check_leelawadee_font()
+    
     # Apply custom CSS
     st.markdown("""
     <style>
@@ -166,9 +169,9 @@ def main():
             
         slidenumber = st.slider(
             "Nombre de points",
-            min_value=2,
-            max_value=6,
-            value=3,
+            min_value=8,
+            max_value=12,
+            value=10,
             key="slidenumber_slider"
         )
         st.session_state.slidenumber = slidenumber
@@ -309,6 +312,9 @@ def display_editing_interface():
     
     st.subheader("Étape 2: Édition des points")
     
+    # Information about keyword highlighting
+    st.info("💡 Les mots ou phrases clés entre guillemets (\"comme ceci\") seront mis en évidence en vert dans la vidéo finale.")
+    
     # Get the edited points
     edited_points = []
     for i, point in enumerate(st.session_state.bullet_points):
@@ -384,6 +390,9 @@ def display_frame_interface():
     total_frames = len(st.session_state.bullet_points)
     
     st.subheader(f"Étape 3: Visualisation des slides ({current_frame + 1}/{total_frames})")
+    
+    # Information about font
+    st.info("💡 La police Leelawadee Bold est utilisée pour le texte, avec les mots clés entre guillemets mis en évidence en vert (#79C910).")
     
     # Display current frame
     # Ensure we have paths AND bytes data
@@ -1563,6 +1572,49 @@ def reset_project():
     st.session_state.generated_summary = {}
     
     print("Project reset complete. All cache has been cleared.")
+
+def check_leelawadee_font():
+    """Check if Leelawadee Bold font exists and create it if needed"""
+    font_dir = "fonts"
+    font_path = os.path.join(font_dir, "Leelawadee Bold.ttf")
+    
+    if os.path.exists(font_path):
+        print(f"La police {font_path} existe déjà.")
+        return
+    
+    # Essayer de copier depuis le répertoire racine si elle existe là-bas
+    root_font_path = "Leelawadee Bold.ttf"
+    if os.path.exists(root_font_path):
+        # Assurez-vous que le répertoire fonts existe
+        os.makedirs(font_dir, exist_ok=True)
+        try:
+            shutil.copy2(root_font_path, font_path)
+            print(f"Police {root_font_path} copiée vers {font_path}")
+            return
+        except Exception as e:
+            print(f"Erreur lors de la copie de {root_font_path} vers {font_path}: {e}")
+    
+    # Si la police n'existe pas, essayez de la créer
+    print(f"La police {font_path} n'existe pas. Tentative de création...")
+    try:
+        # Assurez-vous que le répertoire fonts existe
+        os.makedirs(font_dir, exist_ok=True)
+        
+        # Méthode 1: Utiliser notre script create_font.py
+        from create_font import create_leelawadee_bold
+        if create_leelawadee_bold():
+            # Déplacer le fichier vers le dossier fonts
+            try:
+                shutil.move("Leelawadee Bold.ttf", font_path)
+                print(f"Police {font_path} créée et déplacée avec succès!")
+                return
+            except Exception as e:
+                print(f"Erreur lors du déplacement de la police: {e}")
+        
+        # Méthodes alternatives si les précédentes échouent...
+        print("Impossible de créer ou de trouver la police Leelawadee Bold. Utilisation d'une police par défaut.")
+    except Exception as e:
+        print(f"Erreur lors de la vérification/création de la police: {e}")
 
 if __name__ == "__main__":
     # Create necessary directories
