@@ -1,12 +1,13 @@
 import os
 from web_scraper import scrape_text_from_url
-from text_processor import call_llm_api, print_summary_points, fix_unicode
+from text_processor import print_summary_points, fix_unicode, clean_encoding_issues
 from json_utils import save_and_clean_json
 from image_generator import generate_image, generate_image_for_text
 from text_overlay import add_text_to_image
 from audio_processor import text_to_speech, prepare_background_music
 from video_creator import image_audio_to_video, clear_cache
 from moviepy.editor import AudioFileClip
+from openai_client import summarize_with_openai
 
 def do_work(data, language, add_voiceover, add_music, frame_durations=None, auto_duration=False, skip_image_generation=False):
     """
@@ -167,11 +168,15 @@ def test_cli():
     os.makedirs("cache/clg/", exist_ok=True)
     os.makedirs("cache/vid/", exist_ok=True)
     
-    article_text = scrape_text_from_url(url)
-    print(f"Article scraped, length: {len(article_text)} chars")
+    # Scrape and clean the article text
+    raw_article_text = scrape_text_from_url(url)
+    article_text = clean_encoding_issues(raw_article_text)
+    print(f"Article scraped and cleaned, length: {len(article_text)} chars")
     
-    llm_response = call_llm_api(article_text, slidenumber, wordnumber, language)
-    Json = save_and_clean_json(llm_response, "summary.json")
+    # Use OpenAI for summarization instead of Gemini
+    print("Summarizing article with OpenAI...")
+    Json = summarize_with_openai(article_text, slidenumber, wordnumber, language)
+    save_and_clean_json(Json, "summary.json")
     
     print("\nSummary points:")
     print_summary_points(Json)

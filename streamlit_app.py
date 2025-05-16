@@ -29,13 +29,14 @@ except Exception as e:
 
 # Now import main functions (which will use the environment variables)
 from web_scraper import scrape_text_from_url
-from text_processor import call_llm_api, fix_unicode
+from text_processor import fix_unicode, clean_encoding_issues
 from json_utils import save_and_clean_json
 from app_controller import do_work
 from video_creator import clear_cache
 from image_generator import generate_image_for_text
 from text_overlay import add_text_to_image
 from audio_processor import text_to_speech
+from openai_client import summarize_with_openai
 from PIL import Image
 from io import BytesIO
 import music_api  # Import the music API module
@@ -186,8 +187,8 @@ def main():
         wordnumber = st.slider(
             "Mots par point",
             min_value=10,
-            max_value=20,
-            value=13,
+            max_value=30,
+            value=15,
             key="wordnumber_slider"
         )
         st.session_state.wordnumber = wordnumber
@@ -289,21 +290,25 @@ def display_input_interface():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def process_article_text():
-    """Process the article text and generate a summary"""
-    with st.spinner("Génération du résumé..."):
+    """Process the article text and generate a summary using OpenAI"""
+    with st.spinner("Génération du résumé avec OpenAI..."):
         try:
-            llm_response = call_llm_api(
-                st.session_state.article_text, 
+            # Clean the text to fix encoding issues
+            cleaned_text = clean_encoding_issues(st.session_state.article_text)
+            
+            # Use OpenAI for summarization
+            Json = summarize_with_openai(
+                cleaned_text, 
                 st.session_state.slidenumber, 
                 st.session_state.wordnumber, 
                 st.session_state.language
             )
-            Json = save_and_clean_json(llm_response, "summary.json")
+            save_and_clean_json(Json, "summary.json")
             st.session_state.generated_summary = Json
             
             if 'summary' in Json:
                 st.session_state.bullet_points = [fix_unicode(point) for point in Json['summary']]
-                st.success("Résumé généré avec succès!")
+                st.success("Résumé généré avec succès avec OpenAI!")
                 
                 # Move to the next step
                 st.session_state.current_step = 2

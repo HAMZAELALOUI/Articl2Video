@@ -18,6 +18,7 @@ Le code a été réorganisé en modules pour améliorer la maintenabilité et la
 - **audio_processor.py** - Génération et manipulation audio
 - **video_creator.py** - Création de vidéos à partir d'images et d'audio
 - **app_controller.py** - Coordination du workflow complet
+- **prompts/** - Module contenant tous les templates de prompts pour les LLMs et la génération d'images
 
 ### Interface utilisateur
 

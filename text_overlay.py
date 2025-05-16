@@ -256,11 +256,26 @@ def add_text_to_image(text, image_path, output_path):
     lines = smart_wrap_text(text, font, max_text_width, draw)
     
     # Find keywords to highlight in green (words in quotes)
-    green_words_pattern = r'"([^"]+)"'
+    # Update regex to handle multiple quote patterns:
+    # 1. Regular quotes: "word"
+    # 2. Escaped quotes from JSON: \"word\"
+    # 3. Double-escaped quotes: \\"word\\"
+    green_words_pattern = r'(?:"([^"]+)"|\\+"([^"]+)\\+"|\\\\+"([^"]+)\\\\+")'
+    
     green_word_matches = re.findall(green_words_pattern, text)
     
+    # Process matches - each match is a tuple with groups for different quote styles
+    # We need to extract the actual word from whichever group matched
+    green_words = []
+    for match_groups in green_word_matches:
+        # Find the non-empty group in the match
+        for group in match_groups:
+            if group:
+                green_words.append(group)
+                break
+    
     # Process text with highlighted parts
-    has_highlights = len(green_word_matches) > 0
+    has_highlights = len(green_words) > 0
     
     # Calculate text positioning for left alignment
     text_x = left_margin  # Left margin
@@ -336,13 +351,22 @@ def add_text_to_image(text, image_path, output_path):
                     parts = []
                     last_end = 0
                     
+                    # Need to modify how we're finding matches for highlighting
                     for match in re.finditer(green_words_pattern, sub_line):
                         # Add text before the match
                         if match.start() > last_end:
                             parts.append((sub_line[last_end:match.start()], "white"))
                         
-                        # Add the quoted text (without quotes) in green
-                        parts.append((match.group(1), "green"))
+                        # Find which group in the regex matched (the word inside quotes)
+                        match_word = None
+                        for i, group in enumerate(match.groups(), 1):
+                            if group:
+                                match_word = group
+                                break
+                        
+                        if match_word:
+                            # Add the quoted text (without quotes) in green
+                            parts.append((match_word, "green"))
                         
                         last_end = match.end()
                     
@@ -370,7 +394,7 @@ def add_text_to_image(text, image_path, output_path):
                         
                         # Draw the text in the appropriate color
                         if color == "green":
-                            draw.text((current_x, line_y), part_text, font=font, fill="#79C910")
+                            draw.text((current_x, line_y), part_text, font=font, fill="#79C910")  # Updated color
                         else:
                             draw.text((current_x, line_y), part_text, font=font, fill="#FFFFFF")
                         
@@ -415,8 +439,16 @@ def add_text_to_image(text, image_path, output_path):
                     if match.start() > last_end:
                         parts.append((line[last_end:match.start()], "white"))
                     
-                    # Add the quoted text (without quotes) in green
-                    parts.append((match.group(1), "green"))
+                    # Find which group in the regex matched (the word inside quotes)
+                    match_word = None
+                    for i, group in enumerate(match.groups(), 1):
+                        if group:
+                            match_word = group
+                            break
+                    
+                    if match_word:
+                        # Add the quoted text (without quotes) in green
+                        parts.append((match_word, "green"))
                     
                     last_end = match.end()
                 
@@ -444,7 +476,7 @@ def add_text_to_image(text, image_path, output_path):
                     
                     # Draw the text in the appropriate color
                     if color == "green":
-                        draw.text((current_x, line_y), part_text, font=font, fill="#79C910")
+                        draw.text((current_x, line_y), part_text, font=font, fill="#79C910")  # Updated color
                     else:
                         draw.text((current_x, line_y), part_text, font=font, fill="#FFFFFF")
                     

@@ -8,6 +8,7 @@ import re
 from openai import OpenAI
 from text_processor import fix_unicode
 from image_utils import calculate_shadow, smart_wrap_text
+from prompts import get_image_generation_prompt
 
 def get_openai_api_key():
     """
@@ -83,12 +84,8 @@ def generate_image(text, output_file):
     # Use the headline directly
     headline = text
     
-    # Exactly as specified by user
-    scene_prompt = (
-        f"Ultra-realistic 4K editorial photograph press shot illustrating the following topic: {headline}. "
-        "Symbolic, in-animate elements that visually convey the story; dramatic cinematic lighting, high contrast, deep shadows, news-photography style, vertical 9:16 composition. "
-        "Scene is completely deserted — absolutely no humans, silhouettes or body parts; no written text, no logos, no flags or religious symbols.no public figures. "
-    )
+    # Get the prompt from our prompt module
+    scene_prompt = get_image_generation_prompt(headline)
  
     print(f"Generating image with user-specified prompt...")
 

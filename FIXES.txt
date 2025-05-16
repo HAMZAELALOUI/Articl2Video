@@ -1,0 +1,44 @@
+# Fixes for JSON Parsing Errors in Article2Video
+
+## Problem
+The application was encountering a JSON parsing error: "Expecting ',' delimiter: line 3 column 4952 (char 4968)" when processing OpenAI API responses. This was caused by improperly formatted JSON with unescaped quotes in string values and possibly missing commas between array items.
+
+## Solution
+We implemented several fixes to address the JSON parsing issues:
+
+### 1. Improved JSON Cleanup Functions
+- Enhanced `fix_json_quotes()` function in `json_utils.py` to better handle different types of quote escaping patterns
+- Added more robust regex patterns to identify and fix common JSON errors
+- Implemented a multi-step parsing approach with fallbacks for different error types
+- Added additional cleanup for trailing commas, missing commas, and improperly terminated brackets
+
+### 2. Updated the OpenAI Prompt
+- Modified the prompt in `openai_summarization_prompt.py` to provide clearer instructions on proper JSON formatting
+- Added explicit examples of correctly escaped quotes in JSON
+- Added detailed guidelines about comma usage between array items
+- Provided an example of proper JSON array formatting with commas
+
+### 3. Improved Error Handling
+- Added a new `safely_parse_json()` function in `openai_client.py` that tries multiple parsing approaches
+- Implemented better error reporting and fallback mechanisms
+- Updated the parsing logic to handle different types of JSON responses
+
+### 4. Text Overlay Enhancement
+- Updated the regex pattern in `text_overlay.py` to recognize differently quoted/escaped keywords
+- Improved the handling of quoted text in slides to support all forms of quotes:
+  - Regular quotes: "word"
+  - Escaped quotes: \"word\"
+  - Double-escaped quotes: \\"word\\"
+- Updated the highlight color to #79C910 as requested
+
+## Testing
+Created a test script `test_json_fix.py` to verify the fixes with various error scenarios:
+- Unescaped quotes within string values
+- Missing commas between array items
+- Unclosed brackets
+- Double-escaped quotes
+- Trailing commas
+- Nested quotes with different escaping
+
+## Results
+The improvements should make the application more robust when handling JSON responses from the OpenAI API, particularly for responses that contain quoted keywords in multiple languages. 

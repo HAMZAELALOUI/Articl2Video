@@ -1,0 +1,74 @@
+Testing JSON fixing functions...
+-------------------------------
+
+Test Case 1:
+Original: {"summary": ["Text with "inner quotes" that break JSON"]}
+After fix_json_quotes: {"summary": ["Text with "inner quotes" that break JSON"]}
+❌ Still has JSON errors: Expecting ',' delimiter: line 1 column 26 (char 25)
+Applying additional_json_cleanup...
+Cleaned JSON (first 100 chars): {"summary": ["Text with "inner quotes" that break JSON"]}...
+After cleanup: {"summary": ["Text with "inner quotes" that break JSON"]}
+❌ Still failed to parse: Expecting ',' delimiter: line 1 column 26 (char 25)
+-------------------------------
+
+Test Case 2:
+Original: {"summary": ["First item" "Second item"]}
+After fix_json_quotes: {"summary": ["First item", "Second item"]}
+✅ Successfully parsed!
+Parsed result: {'summary': ['First item', 'Second item']}
+-------------------------------
+
+Test Case 3:
+Original: {"summary": ["Text with unclosed bracket", "Another item"
+After fix_json_quotes: {"summary": ["Text with unclosed bracket", "Another item"
+❌ Still has JSON errors: Expecting ',' delimiter: line 1 column 58 (char 57)
+Applying additional_json_cleanup...
+Cleaned JSON (first 100 chars): {"summary": ["Text with unclosed bracket", "Another item"}]...
+After cleanup: {"summary": ["Text with unclosed bracket", "Another item"}]
+❌ Still failed to parse: Expecting ',' delimiter: line 1 column 58 (char 57)
+-------------------------------
+
+Test Case 4:
+Original: {"summary": ["Text with \"double escaped\" quotes"]}
+After fix_json_quotes: {"summary": ["Text with \"double escaped\" quotes"]}
+✅ Successfully parsed!
+Parsed result: {'summary': ['Text with "double escaped" quotes']}
+-------------------------------
+
+Test Case 5:
+Original: {"summary": ["Item 1", "Item 2", ]}
+After fix_json_quotes: {"summary": ["Item 1", "Item 2" ]}
+✅ Successfully parsed!
+Parsed result: {'summary': ['Item 1', 'Item 2']}
+-------------------------------
+
+Test Case 6:
+Original: {"summary": ["Tensions diplomatiques s'intensifient après que la \"Chine\" accuse", "La délégation américaine rencontre les "autorités taiwanaises""]}
+Regex string fixing failed: 'NoneType' object has no attribute 'replace'
+After fix_json_quotes: {"summary": ["Tensions diplomatiques s'intensifient après que la \"Chine\" accuse", "La délégation américaine rencontre les "autorités taiwanaises""]}
+❌ Still has JSON errors: Expecting ',' delimiter: line 1 column 126 (char 125)
+Applying additional_json_cleanup...
+Cleaned JSON (first 100 chars): {"summary": ["Tensions diplomatiques s'intensifient après que la \"Chine\" accuse", "La délégation a...
+After cleanup: {"summary": ["Tensions diplomatiques s'intensifient après que la \"Chine\" accuse", "La délégation américaine rencontre les "autorités taiwanaises","]}
+❌ Still failed to parse: Expecting ',' delimiter: line 1 column 126 (char 125)
+-------------------------------
+
+Testing save_and_clean_json with a complex case...
+Initial JSON parsing failed: Expecting ',' delimiter: line 4 column 25 (char 42)
+Quote fixing failed to parse: Expecting ',' delimiter: line 4 column 25 (char 42)
+Cleaned JSON (first 100 chars): 
+{
+  "summary": [
+    "Premier point: La "Chine" a des tensions avec les "États-Unis" sur "Taiwan"."...
+Additional cleanup failed: Expecting ',' delimiter: line 4 column 25 (char 42)
+Manual extraction failed: Expecting ',' delimiter: line 3 column 25 (char 41)
+save_and_clean_json result: {'summary': ['Error processing response. JSON parsing failed.'], 'total': '0', 'tone': 'Neutral'}
+Saved file content: {
+    "summary": [
+        "Error processing response. JSON parsing failed."
+    ],
+    "total": "0",
+    "tone": "Neutral"
+}
+
+Tests completed!

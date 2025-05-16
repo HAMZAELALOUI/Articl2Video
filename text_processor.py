@@ -1,22 +1,23 @@
 import os
 import json
-import google.generativeai as genai
 from json import loads
+import re
+import unicodedata
 from json_utils import fix_json_quotes, additional_json_cleanup
+from prompts import get_openai_summarization_prompt
+from openai_client import summarize_with_openai
 
-# Configure Gemini API using environment variable
+# Configure Gemini API using environment variable is no longer needed since we're using OpenAI
+# But we'll keep it for compatibility with other functions
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 if not gemini_api_key:
-    # If running main.py directly, it might fail here.
-    print("Warning: GEMINI_API_KEY environment variable not found. Gemini API calls may fail.")
-    # raise ValueError("GEMINI_API_KEY not found in environment variables.") # Optional: raise error
-else:
-    genai.configure(api_key=gemini_api_key)
-
+    print("Warning: GEMINI_API_KEY environment variable not found. But it's not used for summarization anymore.")
+    # No need to raise an error since we're not using Gemini for summarization
 
 def call_llm_api(article_text, slidenumber, wordnumber, language):
     """
     Call the LLM API to generate bullet points summarizing an article.
+    Now uses OpenAI instead of Gemini.
     
     Args:
         article_text (str): The text of the article to summarize
@@ -28,53 +29,18 @@ def call_llm_api(article_text, slidenumber, wordnumber, language):
         dict: The generated summary data
     """
     try:
-        prompt = f'''Article scraped text and content and Data: {article_text}
-        
-        Task: You are an LLM in JSON mode now, you generate directly a JSON, no more, no less, where you summarize this article in {slidenumber} bullet points in a journalist narrative reporting style format that highlight the main key points from the article, and keep the coherence between each bullet point like a story video content, make it in {language} and don't use Unicodes like "u00e9" put a real "é".
-        
-        NB: Make {slidenumber} short bullet points (around {wordnumber} words max per each) in a narrative style like a reporter and all these bullet points summarize and narrate it in a great way that gives the user a great general idea about the article and don't miss the main ideas but try to keep the flow running and coherence between each bullet point in a way where you can read them and feel like you are reading one article. And there is {slidenumber} bullet points and don't forget that you need to generate a {language} text.
-
-        IMPORTANT: For each bullet point, identify 1-3 key words or short phrases and put them in double quotes like "this". These quoted words will be highlighted in green in the final video. IMPORTANT: Make sure to escape these quotes in the JSON to avoid parser errors. Use \\" for quotes within the text.
-        
-        Example: {{"summary": ["Le Ministre de l'Agriculture a annoncé une récolte \\"exceptionnelle\\" cette année, avec une hausse de \\"20%\\" par rapport à 2022.", "Point 2 avec \\"mots clés\\" importants", "Point 3 avec \\"terme important\\" en évidence",...], "Total": "x", "Tone": "Tone of the best voice over for it"}}
-        
-        IMPORTANT: The article text is the only input you have, you can't use any other data or information, you can't use any other source or external data. Don't hallucinate, don't imagine, don't make up, don't add, don't remove, don't change, don't modify, don't do anything else, just summarize the article in bullet points format that highlight the main key points from the article, no Unicodes, and do it in {language} and Focus on Generating the right characters and not giving Unicode like in French use é,à,è,ù... please never generate Unicodes, and for numbers don't put a "." like in "1.600" write directly "1600"; and if mentioned use "S.M. ..." for King Mohammed VI. and generate only the JSON no intro no outro no nothing else, just the JSON with properly escaped quotes, no more, no less.'''
-        
-        # Create a Gemini model instance
-        model = genai.GenerativeModel('gemini-2.0-flash')
-                # Generate content
-        response = model.generate_content(prompt)
-        
-        # Extract JSON from the response
-        json_text = response.text
-        
-        # Sometimes the model might output text with markdown code block formatting
-        if "```json" in json_text:
-            json_text = json_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in json_text:
-            json_text = json_text.split("```")[1].strip()
-            
-        # Fix potential JSON issues with quotes
-        json_text = fix_json_quotes(json_text)
-            
-        # Parse the JSON text
-        try:
-            result = loads(json_text)
-        except json.JSONDecodeError as e:
-            # If JSON parsing fails, try some additional cleanup
-            print(f"JSON parsing error: {e}. Attempting additional cleanup...")
-            json_text = additional_json_cleanup(json_text)
-            result = loads(json_text)  # Try parsing again
-
+        # Call OpenAI directly for summarization
+        print(f"Using OpenAI for text summarization in {language}...")
+        result = summarize_with_openai(article_text, slidenumber, wordnumber, language)
         return result
         
     except Exception as e:
-        print(f"Error in LLM API call: {str(e)}")
+        print(f"Error in OpenAI API call: {str(e)}")
         # Return a fallback response with error message
         return {
             "summary": [f"Error generating summary: {str(e)}"],
-            "Total": "0",
-            "Tone": "Neutral"
+            "total": "0",
+            "tone": "Neutral"
         }
 
 
@@ -201,4 +167,35 @@ def print_summary_points(data):
             print(f"• {point}")
 
         print(f"\nTotal points: {data.get('Total', 'N/A')}")
-        print(f"Recommended tone: {data.get('Tone', 'N/A')}") 
+        print(f"Recommended tone: {data.get('Tone', 'N/A')}")
+
+
+def clean_encoding_issues(text):
+    """
+    Clean text with encoding issues like replacement characters
+    
+    Args:
+        text (str): The text with potential encoding issues
+        
+    Returns:
+        str: Cleaned text
+    """
+    # Replace replacement character with space
+    text = text.replace('\ufffd', ' ')
+    
+    # Try to normalize unicode characters
+    try:
+        text = unicodedata.normalize('NFKD', text)
+    except Exception as e:
+        print(f"Warning: Unicode normalization failed: {e}")
+    
+    # Manually fix some common encoding issues in French text
+    text = text.replace('fractur\ufffd', 'fracturée')
+    text = text.replace('pr\ufffd', 'pré')
+    text = text.replace('\ufffdchanges', 'échanges')
+    text = text.replace('\ufffd', 'é')
+    
+    # Remove any remaining control characters
+    text = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', text)
+    
+    return text 
