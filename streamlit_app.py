@@ -544,128 +544,57 @@ def display_frame_interface():
             # Create a preview of text overlay for reference, but don't save it
             with st.expander("Aperçu avec texte (cliquez pour voir)", expanded=False):
                 try:
-                    # Create a preview of text on image without saving
-                    from PIL import Image, ImageDraw, ImageFont, ImageColor
-                    import textwrap
+                    # Simply call our implementation from text_overlay.py to get consistent results
+                    from text_overlay import add_text_to_image
+                    from PIL import Image
                     import io
+                    from io import BytesIO
                     
-                    # Get the bullet point text
+                    # Get image and text from state
                     text = st.session_state.bullet_points[current_frame]
+                    image_data = st.session_state.frame_image_bytes[current_frame]
                     
-                    # Open the image
-                    img = Image.open(BytesIO(st.session_state.frame_image_bytes[current_frame]))
-                    img_copy = img.copy()
-                    draw = ImageDraw.Draw(img_copy)
+                    # Create temporary files for the preview
+                    temp_input = f"cache/temp_preview_input_{current_frame}.jpg"
+                    temp_output = f"cache/temp_preview_output_{current_frame}.jpg"
                     
-                    # Try to load font
-                    try:
-                        font = ImageFont.truetype("fonts/Leelawadee Bold.ttf", 50)
-                        small_font = ImageFont.truetype("fonts/Leelawadee Bold.ttf", 40)
-                    except:
-                        try:
-                            font = ImageFont.truetype("Leelawadee Bold.ttf", 50)
-                            small_font = ImageFont.truetype("Leelawadee Bold.ttf", 40)
-                        except:
-                            font = ImageFont.load_default()
-                            small_font = ImageFont.load_default()
+                    # Save the input image
+                    with open(temp_input, "wb") as f:
+                        f.write(image_data)
                     
-                    # Text settings
-                    highlight_color = ImageColor.getrgb("#79C910") if isinstance(highlight_color, str) else highlight_color
-                    text_color = (255, 255, 255)
-                    
-                    # Calculate position
-                    width, height = img_copy.size
-                    text_width = width - 100  # Padding on sides
-                    
-                    # Draw semi-transparent black background for text
-                    import re
-                    
-                    # Function to find quoted text
-                    def find_quoted_text(text):
-                        pattern = r'"([^"]*)"'
-                        return re.findall(pattern, text)
-                    
-                    # Process text
-                    quoted_texts = find_quoted_text(text)
-                    
-                    # Wrap text to fit width
-                    wrapper = textwrap.TextWrapper(width=30)
-                    wrapped_lines = wrapper.wrap(text)
-                    
-                    # Calculate text height to position correctly
-                    line_height = 60
-                    text_block_height = len(wrapped_lines) * line_height
-                    start_y = (height - text_block_height) // 2
-                    
-                    # Draw semi-transparent black background for text
-                    padding = 20
-                    bg_top = start_y - padding
-                    bg_bottom = start_y + text_block_height + padding
-                    bg_left = 50 - padding
-                    bg_right = width - 50 + padding
-                    
-                    # Create a semi-transparent overlay
-                    overlay = Image.new('RGBA', img_copy.size, (0, 0, 0, 0))
-                    draw_overlay = ImageDraw.Draw(overlay)
-                    draw_overlay.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill=(0, 0, 0, 180))
-                    
-                    # Composite the overlay onto the image
-                    if img_copy.mode != 'RGBA':
-                        img_copy = img_copy.convert('RGBA')
-                    img_copy = Image.alpha_composite(img_copy, overlay)
-                    draw = ImageDraw.Draw(img_copy)
-                    
-                    # Draw text with highlighted quotes
-                    y = start_y
-                    for line in wrapped_lines:
-                        line_positions = []
-                        current_text = line
-                        
-                        # Check for quoted text in this line
-                        for quoted in quoted_texts:
-                            if quoted in current_text:
-                                parts = current_text.split(f'"{quoted}"', 1)
-                                
-                                # Calculate positions
-                                if parts[0]:
-                                    w1 = draw.textlength(parts[0], font=font)
-                                    line_positions.append((parts[0], (50, y), text_color))
-                                else:
-                                    w1 = 0
-                                
-                                # Add the quoted text with highlight color
-                                quoted_text = f'"{quoted}"'
-                                line_positions.append((quoted_text, (50 + w1, y), highlight_color))
-                                
-                                # If there's text after the quote
-                                if len(parts) > 1 and parts[1]:
-                                    w2 = draw.textlength(quoted_text, font=font)
-                                    line_positions.append((parts[1], (50 + w1 + w2, y), text_color))
-                                
-                                current_text = ""  # Processed this quoted text
-                                break
-                        
-                        # If no quotes were found, add the whole line
-                        if current_text:
-                            line_positions.append((current_text, (50, y), text_color))
-                        
-                        # Draw all parts of the line
-                        for text_part, position, color in line_positions:
-                            draw.text(position, text_part, fill=color, font=font)
-                        
-                        y += line_height
-                    
-                    # Convert to RGB for JPEG
-                    img_preview = img_copy.convert('RGB')
-                    
-                    # Create BytesIO object to save the image
-                    preview_bytes = io.BytesIO()
-                    img_preview.save(preview_bytes, format='JPEG')
-                    preview_bytes.seek(0)
+                    # Generate the preview using the same function that will be used in video generation
+                    # This will automatically include logo and frame if they exist
+                    add_text_to_image(text, temp_input, temp_output)
                     
                     # Display the preview
-                    st.image(preview_bytes, caption="Aperçu avec texte", use_container_width=True)
-                
+                    preview_img = Image.open(temp_output)
+                    st.image(preview_img, caption="Aperçu avec texte et logo (si présent)", use_container_width=True)
+                    
+                    # Add info about custom features
+                    logo_path = "cache/custom/logo.png"
+                    frame_path = "cache/custom/frame.png"
+                    
+                    features = []
+                    if os.path.exists(logo_path):
+                        features.append("✅ Logo")
+                    else:
+                        features.append("❌ Logo (non configuré)")
+                        
+                    if os.path.exists(frame_path):
+                        features.append("✅ Cadre")
+                    else:
+                        features.append("❌ Cadre (non configuré)")
+                    
+                    if features:
+                        st.caption("Éléments personnalisés: " + ", ".join(features))
+                    
+                    # Clean up temp files
+                    try:
+                        os.remove(temp_input)
+                        os.remove(temp_output)
+                    except:
+                        pass
+                    
                 except Exception as preview_error:
                     st.warning(f"Impossible de générer l'aperçu avec texte: {preview_error}")
 

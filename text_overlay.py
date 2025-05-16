@@ -1,10 +1,209 @@
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageColor
 import re
 import os
 from text_processor import fix_unicode
 from image_utils import smart_wrap_text, calculate_shadow
+import textwrap
 
 def add_text_to_image(text, image_path, output_path):
+    """
+    Add text to an image with proper text wrapping and highlighting for quoted words.
+    
+    Args:
+        text (str): The text to add to the image
+        image_path (str): The path to the input image
+        output_path (str): The path to save the output image
+    """
+    try:
+        # Open the image
+        img = Image.open(image_path)
+        
+        # Create a drawing context
+        draw = ImageDraw.Draw(img)
+        
+        # Try to load font from different locations
+        font = None
+        font_paths = [
+            "fonts/Montserrat-Bold.ttf",  # Priority to Montserrat Bold
+            "Montserrat-Bold.ttf",
+            "fonts/Leelawadee Bold.ttf",
+            "Leelawadee Bold.ttf"
+        ]
+        
+        for font_path in font_paths:
+            try:
+                if os.path.exists(font_path):
+                    font = ImageFont.truetype(font_path, 50)
+                    small_font = ImageFont.truetype(font_path, 40)
+                    print(f"Loaded font from {font_path}")
+                    break
+            except Exception as e:
+                print(f"Could not load font from {font_path}: {e}")
+        
+        # If no custom font found, use default
+        if font is None:
+            font = ImageFont.load_default()
+            small_font = ImageFont.load_default()
+            print("Using default font")
+        
+        # Add logo if it exists
+        width, height = img.size
+        
+        # Check for custom logo
+        logo_path = "cache/custom/logo.png"
+        if os.path.exists(logo_path):
+            try:
+                logo = Image.open(logo_path)
+                # Resize logo to be 20% of image width, maintaining aspect ratio
+                logo_width = int(width * 0.3)  # percentage of image width
+                logo_height = int(logo.height * (logo_width / logo.width))
+                logo = logo.resize((logo_width, logo_height), Image.Resampling.LANCZOS)
+                
+                # Calculate position to center logo at the top with some margin
+                logo_x = (width - logo_width) // 2
+                logo_y = int(height * 0.05)  # 5% from the top
+                
+                # Make sure logo has alpha channel for proper overlay
+                if logo.mode != 'RGBA':
+                    logo = logo.convert('RGBA')
+                
+                # If the image is not RGBA, convert it
+                if img.mode != 'RGBA':
+                    img = img.convert('RGBA')
+                    
+                # Create a temporary image for the logo
+                logo_layer = Image.new('RGBA', img.size, (0, 0, 0, 0))
+                logo_layer.paste(logo, (logo_x, logo_y), logo)
+                
+                # Composite the logo onto the image
+                img = Image.alpha_composite(img, logo_layer)
+                print(f"Added logo from {logo_path} to image")
+            except Exception as e:
+                print(f"Error adding logo to image: {e}")
+        
+        # Text settings
+        highlight_color = "#79C910"  # Green for highlighting quoted text
+        highlight_color_rgb = ImageColor.getrgb(highlight_color)
+        text_color = (255, 255, 255)  # White
+        
+        # Calculate position - we need to adjust for logo if it was added
+        text_width = width - 100  # Padding on sides
+        
+        # Function to find quoted text
+        def find_quoted_text(text):
+            pattern = r'"([^"]*)"'
+            return re.findall(pattern, text)
+        
+        # Process text
+        quoted_texts = find_quoted_text(text)
+        print(f"Found quoted keywords: {quoted_texts}")
+        
+        # Wrap text to fit width
+        wrapper = textwrap.TextWrapper(width=30)
+        wrapped_lines = wrapper.wrap(text)
+        
+        # Calculate text height to position correctly
+        line_height = 60
+        text_block_height = len(wrapped_lines) * line_height
+        
+        # Adjust start_y to account for logo if present
+        start_y = (height - text_block_height) // 2
+        if os.path.exists(logo_path):
+            # Push text down a bit when logo is present
+            logo_margin = int(height * 0.20)  # 20% from top
+            start_y = max(start_y, logo_margin)
+        
+        # Draw semi-transparent black background for text
+        padding = 20
+        bg_top = start_y - padding
+        bg_bottom = start_y + text_block_height + padding
+        bg_left = 50 - padding
+        bg_right = width - 50 + padding
+        
+        # Create a semi-transparent overlay
+        overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        draw_overlay = ImageDraw.Draw(overlay)
+        draw_overlay.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill=(0, 0, 0, 180))
+        
+        # Composite the overlay onto the image
+        if img.mode != 'RGBA':
+            img = img.convert('RGBA')
+        img = Image.alpha_composite(img, overlay)
+        draw = ImageDraw.Draw(img)
+        
+        # Draw text with highlighted quotes
+        y = start_y
+        for line in wrapped_lines:
+            line_positions = []
+            current_text = line
+            
+            # Check for quoted text in this line
+            for quoted in quoted_texts:
+                if quoted in current_text:
+                    parts = current_text.split(f'"{quoted}"', 1)
+                    
+                    # Calculate positions
+                    if parts[0]:
+                        w1 = draw.textlength(parts[0], font=font)
+                        line_positions.append((parts[0], (50, y), text_color))
+                    else:
+                        w1 = 0
+                    
+                    # Add the quoted text with highlight color
+                    quoted_text = f'"{quoted}"'
+                    line_positions.append((quoted_text, (50 + w1, y), highlight_color_rgb))
+                    
+                    # If there's text after the quote
+                    if len(parts) > 1 and parts[1]:
+                        w2 = draw.textlength(quoted_text, font=font)
+                        line_positions.append((parts[1], (50 + w1 + w2, y), text_color))
+                    
+                    current_text = ""  # Processed this quoted text
+                    break
+            
+            # If no quotes were found, add the whole line
+            if current_text:
+                line_positions.append((current_text, (50, y), text_color))
+            
+            # Draw all parts of the line
+            for text_part, position, color in line_positions:
+                draw.text(position, text_part, fill=color, font=font)
+            
+            y += line_height
+        
+        # Add frame overlay if it exists
+        frame_path = "cache/custom/frame.png"
+        if os.path.exists(frame_path):
+            try:
+                frame = Image.open(frame_path)
+                # Resize frame if needed
+                if frame.size != img.size:
+                    frame = frame.resize(img.size, Image.Resampling.LANCZOS)
+                
+                # Ensure frame has alpha
+                if frame.mode != 'RGBA':
+                    frame = frame.convert('RGBA')
+                
+                # Composite frame on top
+                img = Image.alpha_composite(img, frame)
+                print(f"Added frame overlay from {frame_path}")
+            except Exception as e:
+                print(f"Error adding frame: {e}")
+        
+        # Convert to RGB for JPEG
+        img = img.convert('RGB')
+        
+        # Save the image
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        img.save(output_path)
+        print(f"✓ Saved image with text to {output_path}")
+        return True
+    
+    except Exception as e:
+        print(f"❌ Error adding text to image: {e}")
+        return False
+
+def add_text_to_image_old(text, image_path, output_path):
     """
     Add text overlay to an image with highlighting for keywords.
     
