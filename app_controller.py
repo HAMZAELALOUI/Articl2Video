@@ -1,8 +1,12 @@
 import os
+import sys
+import re
+import time
+import json
 from web_scraper import scrape_text_from_url
 from text_processor import print_summary_points, fix_unicode, clean_encoding_issues
 from json_utils import save_and_clean_json
-from image_generator import generate_image, generate_image_for_text
+from image_generator import generate_image, generate_image_for_text, generate_images_for_bullet_points
 from text_overlay import add_text_to_image
 from audio_processor import text_to_speech, prepare_background_music
 from video_creator import image_audio_to_video, clear_cache
@@ -11,142 +15,142 @@ from openai_client import summarize_with_openai
 
 def do_work(data, language, add_voiceover, add_music, frame_durations=None, auto_duration=False, skip_image_generation=False):
     """
-    Main workflow function that processes data and generates a video.
+    Main function to orchestrate the video creation process.
     
     Args:
-        data (dict): Data containing summary points
-        language (str): Language for text-to-speech
-        add_voiceover (bool): Whether to add voiceover
-        add_music (bool): Whether to add background music
-        frame_durations (list): Optional list of durations for each frame
-        auto_duration (bool): Whether to calculate durations automatically
-        skip_image_generation (bool): Whether to skip image generation
-        
-    Returns:
-        None
+        data (dict): The generated summary data in JSON format.
+        language (str): The language for the text-to-speech.
+        add_voiceover (bool): Whether to add voiceover to the video.
+        add_music (bool): Whether to add background music to the video.
+        frame_durations (list): Optional list of durations for each frame.
+        auto_duration (bool): Whether to calculate durations automatically.
+        skip_image_generation (bool): Whether to skip image generation (use existing images).
     """
-    # Create necessary directories
-    os.makedirs("cache/aud/", exist_ok=True)
+    print("Starting video creation process...")
+    
+    # Before doing anything else, make sure all required directories exist
+    # Not checking if the directories exist first can cause issues
     os.makedirs("cache/img/", exist_ok=True)
+    os.makedirs("cache/aud/", exist_ok=True)
     os.makedirs("cache/clg/", exist_ok=True)
     os.makedirs("cache/vid/", exist_ok=True)
-    os.makedirs("cache/music/", exist_ok=True)
     
-    print(f"DEBUG DO_WORK: add_voiceover={add_voiceover}, language={language}, auto_duration={auto_duration}")
-
-    # Check for user-uploaded background music
-    custom_music_file = "cache/music/background.mp3"
-    user_music_exists = os.path.exists(custom_music_file)
+    # Ensure we have a "summary" key in the data
+    if not data or 'summary' not in data:
+        print("Error: Invalid data format. 'summary' key missing.")
+        print(f"Data received: {data}")
+        return
     
-    if user_music_exists:
-        print(f"User-uploaded background music found: {custom_music_file}")
-    elif add_music:
-        print("No user-uploaded background music found. Will use default if available.")
-
-    if 'summary' in data:
-        # Initialize frame_durations if it's not provided or auto_duration is True
-        if frame_durations is None or len(frame_durations) == 0:
-            frame_durations = [3.0] * len(data['summary'])  # Default duration
+    # Log the total number of points
+    print(f"Processing {len(data['summary'])} summary points...")
+    
+    # Use provided frame durations or set defaults
+    if not frame_durations:
+        frame_durations = []
+        # Set default durations - we'll use 5 seconds per frame unless auto_duration is True
+        for point in data['summary']:
+            if auto_duration:
+                # Calculate duration based on text length
+                word_count = len(point.split())
+                # Roughly calculate reading time: 0.5 second per word plus a base time
+                duration = max(3.0, min(8.0, word_count * 0.5 + 1.5))
+                frame_durations.append(duration)
+            else:
+                # Default fixed duration
+                frame_durations.append(5.0)
+    
+    # Generate audio files if voiceover is enabled
+    if add_voiceover:
+        print("Generating voiceover audio...")
+        for i, point in enumerate(data['summary'], 1):
+            print(f"Generating audio for point {i}: {point[:50]}...")
+            # Generate the audio file with the specified language
+            text_to_speech(
+                text=point,
+                output_file=f"cache/aud/point_{i}.mp3",
+                language=language
+            )
             
-        # Ensure frame_durations has correct length
-        while len(frame_durations) < len(data['summary']):
-            frame_durations.append(3.0)
-            
-        # If auto_duration is enabled, we'll measure speech duration for each frame
-        if auto_duration and add_voiceover:
-            print("Auto duration mode enabled - measuring speech durations")
-            total_duration = 0
-            
-            for i, point in enumerate(data['summary']):
-                audio_path = f"cache/aud/point_{i+1}.mp3"
-                
-                # Generate text-to-speech audio for this frame
-                text_to_speech(point, audio_path, language)
-                
-                # Measure the duration of the generated audio
-                if os.path.exists(audio_path):
-                    try:
-                        audio = AudioFileClip(audio_path)
-                        duration = audio.duration
-                        audio.close()
-                        # Update the frame duration with the actual audio duration
-                        frame_durations[i] = duration
-                        total_duration += duration
-                        print(f"Frame {i+1} auto duration: {duration:.1f}s")
-                    except Exception as e:
-                        print(f"Error measuring audio duration for frame {i+1}: {e}")
-                        # Keep the default duration if there's an error
-                        total_duration += frame_durations[i]
-            
-            # Add outro duration to total
-            outro_duration = 3.0  # Standard outro duration
-            total_duration += outro_duration
-            
-            print(f"Total estimated video duration: {total_duration:.1f}s")
-            
-            # If user uploaded music, prepare it based on total duration
-            if user_music_exists and add_music:
-                prepare_background_music(custom_music_file, total_duration)
-                
-        # Otherwise, use the provided frame_durations or generate TTS if needed
-        else:
-            # Only generate text-to-speech if needed for voiceover
-            if add_voiceover:
-                print("Generating voiceover audio files...")
-                # First clear any existing audio files to avoid conflicts
-                for file in os.listdir("cache/aud/"):
-                    if file.endswith(".mp3"):
-                        os.remove(os.path.join("cache/aud/", file))
-                        
-                for i, point in enumerate(data['summary']):
-                    # IMPORTANT: The naming format must be "point_{i+1}.mp3"
-                    audio_path = f"cache/aud/point_{i+1}.mp3"
-                    print(f"Generating audio for text: {point[:30]}...")
+            # If auto_duration is True, adjust the frame duration based on the audio length
+            if auto_duration and os.path.exists(f"cache/aud/point_{i}.mp3"):
+                try:
+                    from tinytag import TinyTag
+                    tag = TinyTag.get(f"cache/aud/point_{i}.mp3")
+                    audio_duration = tag.duration
                     
-                    # Always regenerate audio to ensure consistency
-                    text_to_speech(point, audio_path, language)
-                    
-                    # Verify the file was created
-                    if os.path.exists(audio_path):
-                        print(f"✓ Audio file created: {audio_path}")
-                    else:
-                        print(f"✗ Failed to create audio file: {audio_path}")
+                    # Add a small buffer to the audio duration (e.g., 0.5 seconds)
+                    if i-1 < len(frame_durations):
+                        frame_durations[i-1] = audio_duration + 0.5
+                        print(f"Adjusted duration for point {i} to {frame_durations[i-1]} seconds")
+                except Exception as e:
+                    print(f"Error getting audio duration: {e}")
+                    # Keep the text-based duration if there's an error
+    
+    # Generate images and add text only if not skipping image generation
+    if not skip_image_generation:
+        print("Generating images for bullet points...")
+        try:
+            # Get the full text from the data if available
+            article_text = data.get("full_text", "")
+            if not article_text:
+                # Combine the summary points as a fallback
+                article_text = " ".join(data["summary"])
             
-            # Calculate total duration from provided frame durations
-            if add_music:
-                total_duration = sum(frame_durations) + 3.0  # Add outro duration
-                print(f"Total estimated video duration: {total_duration:.1f}s")
+            # Use the batch image generation approach for all bullet points
+            image_paths = generate_images_for_bullet_points(data["summary"], article_text)
+            
+            # Add text overlay to each image
+            for i, (point, image_path) in enumerate(zip(data["summary"], image_paths), 1):
+                # Configure text properties
+                text_color = (255, 255, 255)  # White
+                background_color = (0, 0, 0, 153)  # Semi-transparent black background
+                highlight_color = "#79C910"  # Highlight color for quoted words
+                text_position = "center"
+                text_padding = 20
                 
-                # If user uploaded music, prepare it based on total duration
-                if user_music_exists:
-                    prepare_background_music(custom_music_file, total_duration)
-        
-        # Generate images and add text only if not skipping image generation
-        if not skip_image_generation:
-            print("Generating images for bullet points...")
-            i = 1
-            for point in data['summary']:
-                print(f"• {point}")
-                generate_image(point, f"cache/img/point_{i}.jpg")
-                add_text_to_image(point, f"cache/img/point_{i}.jpg", f"cache/clg/point_{i}.jpg")
-                i += 1
-        else:
-            print("Skipping image generation, using existing images...")
-            # Verify existing images are in place
-            for i, point in enumerate(data['summary'], 1):
-                if not os.path.exists(f"cache/clg/point_{i}.jpg"):
-                    print(f"Warning: Expected image cache/clg/point_{i}.jpg not found!")
-        
-        # Create final video
-        print(f"Creating video with add_voiceover={add_voiceover}, add_music={add_music}")
-        
-        # Verify audio files before video creation
-        if add_voiceover:
-            import glob
-            audio_files = sorted(glob.glob(os.path.join("cache/aud", "*.mp3")))
-            print(f"Found {len(audio_files)} audio files: {audio_files}")
-            
-        image_audio_to_video("cache/clg", "cache/aud", f"cache/vid/final.mp4", add_voiceover, add_music, frame_durations)
+                # Create the final frame
+                frame_path = f"cache/clg/point_{i}.jpg"
+                
+                # Add text to the image
+                add_text_to_image(
+                    image_path=image_path,
+                    output_path=frame_path,
+                    text=point,
+                    font_path="fonts/Leelawadee Bold.ttf",
+                    font_size=65,
+                    text_color=text_color,
+                    background_color=background_color,
+                    position=text_position,
+                    padding=text_padding,
+                    highlight_color=highlight_color
+                )
+        except Exception as e:
+            print(f"Error in batch image generation: {e}")
+            # Fall back to individual image generation
+            print("Falling back to individual image generation...")
+            for i, point in enumerate(data["summary"], 1):
+                try:
+                    generate_image(point, f"cache/img/point_{i}.jpg")
+                    add_text_to_image(point, f"cache/img/point_{i}.jpg", f"cache/clg/point_{i}.jpg")
+                except Exception as img_error:
+                    print(f"Error generating image for point {i}: {img_error}")
+    else:
+        print("Skipping image generation, using existing images...")
+        # Verify existing images are in place
+        for i, point in enumerate(data['summary'], 1):
+            if not os.path.exists(f"cache/clg/point_{i}.jpg"):
+                print(f"Warning: Expected image cache/clg/point_{i}.jpg not found!")
+    
+    # Create final video
+    print(f"Creating video with add_voiceover={add_voiceover}, add_music={add_music}")
+    
+    # Verify audio files before video creation
+    if add_voiceover:
+        import glob
+        audio_files = sorted(glob.glob(os.path.join("cache/aud", "*.mp3")))
+        print(f"Found {len(audio_files)} audio files: {audio_files}")
+    
+    image_audio_to_video("cache/clg", "cache/aud", f"cache/vid/final.mp4", add_voiceover, add_music, frame_durations)
 
 
 def test_cli():

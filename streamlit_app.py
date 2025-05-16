@@ -4,6 +4,7 @@ import shutil
 import time
 import random
 import uuid
+import hashlib
 
 # Load secrets and set environment variables FIRST
 try:
@@ -33,7 +34,7 @@ from text_processor import fix_unicode, clean_encoding_issues
 from json_utils import save_and_clean_json
 from app_controller import do_work
 from video_creator import clear_cache
-from image_generator import generate_image_for_text
+from image_generator import generate_image_for_text, generate_images_for_bullet_points
 from text_overlay import add_text_to_image
 from audio_processor import text_to_speech
 from openai_client import summarize_with_openai
@@ -50,6 +51,78 @@ def read_image(file_path):
             print(f"Error loading image {file_path}: {e}")
             return None
     return None
+
+def check_session_state_integrity():
+    """
+    Checks and fixes session state to ensure arrays are properly aligned
+    Returns True if any repairs were made
+    """
+    repairs_made = False
+    
+    # Check if arrays exist
+    required_arrays = ['bullet_points', 'frame_images', 'frame_image_bytes', 'frame_durations', 'frame_audio']
+    for array_name in required_arrays:
+        if array_name not in st.session_state:
+            print(f"Creating missing session state array: {array_name}")
+            st.session_state[array_name] = []
+            repairs_made = True
+    
+    # Determine the expected length based on bullet_points
+    if len(st.session_state.bullet_points) > 0:
+        expected_length = len(st.session_state.bullet_points)
+        
+        # Check if frame_images matches the length of bullet_points
+        if len(st.session_state.frame_images) != expected_length:
+            print(f"Session state mismatch: frame_images length ({len(st.session_state.frame_images)}) != bullet_points length ({expected_length})")
+            # If we have more frame_images than bullet_points, trim the excess
+            if len(st.session_state.frame_images) > expected_length:
+                st.session_state.frame_images = st.session_state.frame_images[:expected_length]
+                print(f"Trimmed frame_images to {expected_length} items")
+            # If we have fewer frame_images than bullet_points, add placeholder values
+            else:
+                st.session_state.frame_images.extend([None] * (expected_length - len(st.session_state.frame_images)))
+                print(f"Extended frame_images to {expected_length} items")
+            repairs_made = True
+        
+        # Check if frame_image_bytes matches the length of bullet_points
+        if len(st.session_state.frame_image_bytes) != expected_length:
+            print(f"Session state mismatch: frame_image_bytes length ({len(st.session_state.frame_image_bytes)}) != bullet_points length ({expected_length})")
+            # If we have more frame_image_bytes than bullet_points, trim the excess
+            if len(st.session_state.frame_image_bytes) > expected_length:
+                st.session_state.frame_image_bytes = st.session_state.frame_image_bytes[:expected_length]
+                print(f"Trimmed frame_image_bytes to {expected_length} items")
+            # If we have fewer frame_image_bytes than bullet_points, add None values
+            else:
+                st.session_state.frame_image_bytes.extend([None] * (expected_length - len(st.session_state.frame_image_bytes)))
+                print(f"Extended frame_image_bytes to {expected_length} items")
+            repairs_made = True
+        
+        # Check if frame_durations matches the length of bullet_points
+        if len(st.session_state.frame_durations) != expected_length:
+            print(f"Session state mismatch: frame_durations length ({len(st.session_state.frame_durations)}) != bullet_points length ({expected_length})")
+            # If we have more frame_durations than bullet_points, trim the excess
+            if len(st.session_state.frame_durations) > expected_length:
+                st.session_state.frame_durations = st.session_state.frame_durations[:expected_length]
+                print(f"Trimmed frame_durations to {expected_length} items")
+            # If we have fewer frame_durations than bullet_points, add default values
+            else:
+                st.session_state.frame_durations.extend([5.0] * (expected_length - len(st.session_state.frame_durations)))
+                print(f"Extended frame_durations to {expected_length} items")
+            repairs_made = True
+    
+    # Check for missing image bytes
+    if len(st.session_state.frame_images) > 0 and len(st.session_state.frame_image_bytes) == len(st.session_state.frame_images):
+        for i, (image_path, image_bytes) in enumerate(zip(st.session_state.frame_images, st.session_state.frame_image_bytes)):
+            if image_path and not image_bytes and os.path.exists(image_path):
+                try:
+                    print(f"Loading missing image bytes for frame {i} from {image_path}")
+                    with open(image_path, "rb") as f:
+                        st.session_state.frame_image_bytes[i] = f.read()
+                    repairs_made = True
+                except Exception as e:
+                    print(f"Error loading image bytes for frame {i}: {e}")
+    
+    return repairs_made
 
 def main():
     # Set page config for better appearance
@@ -150,6 +223,42 @@ def main():
         st.session_state.logo_timestamp = 0
     if 'refresh_counter' not in st.session_state:
         st.session_state.refresh_counter = 0
+    
+    # Load existing images from cache if available and frames are empty
+    if len(st.session_state.frame_images) == 0:
+        try:
+            # Look for images in the cache/clg/ directory
+            image_files = sorted([f for f in os.listdir("cache/clg/") if f.endswith(".jpg")])
+            
+            if image_files:
+                print(f"Found {len(image_files)} existing images in cache/clg/")
+                
+                # Load the images into session state
+                for img_file in image_files:
+                    file_path = os.path.join("cache/clg/", img_file)
+                    st.session_state.frame_images.append(file_path)
+                    
+                    # Also load the image bytes
+                    with open(file_path, "rb") as f:
+                        st.session_state.frame_image_bytes.append(f.read())
+                    
+                    # Set default durations
+                    st.session_state.frame_durations.append(5.0)
+                
+                # If we loaded images, but don't have bullet points, try to extract them
+                if len(st.session_state.bullet_points) == 0:
+                    # Create default bullet points based on image count
+                    for i in range(len(image_files)):
+                        st.session_state.bullet_points.append(f"Point {i+1}")
+                
+                print(f"Successfully loaded {len(st.session_state.frame_images)} images into session state")
+        except Exception as e:
+            print(f"Error loading cached images: {e}")
+    
+    # Check session state integrity and repair if needed
+    if check_session_state_integrity():
+        print("Session state was repaired, forcing refresh")
+        st.session_state.needs_refresh = True
     
     # Force refresh if needed
     if st.session_state.needs_refresh:
@@ -350,46 +459,23 @@ def display_editing_interface():
             if 'summary' in st.session_state.generated_summary:
                 st.session_state.generated_summary['summary'] = edited_points
             
-            # Generate images for all bullet points at once
-            with st.spinner("Génération des images..."):
-                try:
-                    # Ensure cache directories exist
-                    os.makedirs("cache/img/", exist_ok=True)
-                    os.makedirs("cache/clg/", exist_ok=True)
-                    
-                    frame_images_paths = []
-                    frame_image_bytes_list = []
-                    
-                    for i, point in enumerate(edited_points):
-                        # Generate image
-                        image_path = generate_image_for_text(point)
-                        frame_images_paths.append(image_path)
-                        
-                        # Read the generated image file and store its bytes
-                        try:
-                            with open(image_path, "rb") as f:
-                                image_bytes = f.read()
-                                frame_image_bytes_list.append(image_bytes)
-                                print(f"Successfully cached image {i+1} in session state")
-                        except Exception as e:
-                            st.error(f"Error reading generated image {image_path}: {e}")
-                            frame_image_bytes_list.append(None)
-                    
-                    # Update session state
-                    st.session_state.frame_images = frame_images_paths
-                    st.session_state.frame_image_bytes = frame_image_bytes_list
-                    st.session_state.current_frame = 0
-                    
-                    # Initialize frame durations with default values
-                    st.session_state.frame_durations = [3.0] * len(edited_points)
-                    
-                    # Move to the next step
-                    st.session_state.current_step = 3
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"Error during image generation: {str(e)}")
-                    st.stop()
+            # Clear previous frame data
+            st.session_state.frame_images = []
+            st.session_state.frame_image_bytes = []
+            st.session_state.frame_durations = []
+            st.session_state.frame_audio = []
+            
+            # Process bullet points to generate images and frames
+            process_bullet_points()
+            
+            # Move to the next step
+            st.session_state.current_step = 3
+            st.rerun()
+    
+    with col1:
+        if st.button("⬅️ Retour", use_container_width=True):
+            st.session_state.current_step = 1
+            st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -404,7 +490,27 @@ def display_frame_interface():
     st.subheader(f"Étape 3: Visualisation des slides ({current_frame + 1}/{total_frames})")
     
     # Information about font
-    st.info("💡 La police Leelawadee Bold est utilisée pour le texte, avec les mots clés entre guillemets mis en évidence en vert (#79C910).")
+    st.info("💡 La police Leelawadee Bold est utilisée pour le texte, avec les mots clés entre guillemets mis en évidence en vert (#79C910). Le texte sera ajouté aux images lors de la génération de la vidéo finale.")
+    
+    # Display debug information in a collapsible section
+    with st.expander("Informations de débogage (cliquez pour voir)", expanded=False):
+        st.write(f"Nombre de points: {len(st.session_state.bullet_points)}")
+        st.write(f"Nombre d'images: {len(st.session_state.frame_images)}")
+        st.write(f"Nombre d'images en mémoire: {len(st.session_state.frame_image_bytes)}")
+        st.write(f"Nombre de durées: {len(st.session_state.frame_durations)}")
+        
+        if len(st.session_state.frame_images) > 0:
+            st.write("Chemins des images:")
+            for i, path in enumerate(st.session_state.frame_images):
+                st.write(f"Image {i+1}: {path} (existe: {os.path.exists(path)})")
+        
+        if current_frame < len(st.session_state.frame_images):
+            current_image_path = st.session_state.frame_images[current_frame]
+            st.write(f"Image actuelle: {current_image_path}")
+            st.write(f"L'image existe: {os.path.exists(current_image_path)}")
+            
+            if current_frame < len(st.session_state.frame_image_bytes):
+                st.write(f"Données d'image en mémoire: {'Présentes' if st.session_state.frame_image_bytes[current_frame] else 'Absentes'}")
     
     # Display current frame
     # Ensure we have paths AND bytes data
@@ -420,7 +526,7 @@ def display_frame_interface():
             try:
                 image_data = st.session_state.frame_image_bytes[current_frame]
                 img = Image.open(BytesIO(image_data))
-                st.image(img, caption=f"Slide {current_frame + 1}", use_container_width=True, width=300)
+                st.image(img, caption=f"Slide {current_frame + 1} (prévisualisation sans texte)", use_container_width=True, width=300)
             except Exception as e:
                 st.error(f"Erreur affichage image depuis cache mémoire: {e}")
                 # Fallback: try loading from path if bytes failed
@@ -434,6 +540,134 @@ def display_frame_interface():
                 else:
                      st.warning(f"Image non disponible (fichier non trouvé?) {image_path}")
             # --- End image loading --- 
+
+            # Create a preview of text overlay for reference, but don't save it
+            with st.expander("Aperçu avec texte (cliquez pour voir)", expanded=False):
+                try:
+                    # Create a preview of text on image without saving
+                    from PIL import Image, ImageDraw, ImageFont, ImageColor
+                    import textwrap
+                    import io
+                    
+                    # Get the bullet point text
+                    text = st.session_state.bullet_points[current_frame]
+                    
+                    # Open the image
+                    img = Image.open(BytesIO(st.session_state.frame_image_bytes[current_frame]))
+                    img_copy = img.copy()
+                    draw = ImageDraw.Draw(img_copy)
+                    
+                    # Try to load font
+                    try:
+                        font = ImageFont.truetype("fonts/Leelawadee Bold.ttf", 50)
+                        small_font = ImageFont.truetype("fonts/Leelawadee Bold.ttf", 40)
+                    except:
+                        try:
+                            font = ImageFont.truetype("Leelawadee Bold.ttf", 50)
+                            small_font = ImageFont.truetype("Leelawadee Bold.ttf", 40)
+                        except:
+                            font = ImageFont.load_default()
+                            small_font = ImageFont.load_default()
+                    
+                    # Text settings
+                    highlight_color = ImageColor.getrgb("#79C910") if isinstance(highlight_color, str) else highlight_color
+                    text_color = (255, 255, 255)
+                    
+                    # Calculate position
+                    width, height = img_copy.size
+                    text_width = width - 100  # Padding on sides
+                    
+                    # Draw semi-transparent black background for text
+                    import re
+                    
+                    # Function to find quoted text
+                    def find_quoted_text(text):
+                        pattern = r'"([^"]*)"'
+                        return re.findall(pattern, text)
+                    
+                    # Process text
+                    quoted_texts = find_quoted_text(text)
+                    
+                    # Wrap text to fit width
+                    wrapper = textwrap.TextWrapper(width=30)
+                    wrapped_lines = wrapper.wrap(text)
+                    
+                    # Calculate text height to position correctly
+                    line_height = 60
+                    text_block_height = len(wrapped_lines) * line_height
+                    start_y = (height - text_block_height) // 2
+                    
+                    # Draw semi-transparent black background for text
+                    padding = 20
+                    bg_top = start_y - padding
+                    bg_bottom = start_y + text_block_height + padding
+                    bg_left = 50 - padding
+                    bg_right = width - 50 + padding
+                    
+                    # Create a semi-transparent overlay
+                    overlay = Image.new('RGBA', img_copy.size, (0, 0, 0, 0))
+                    draw_overlay = ImageDraw.Draw(overlay)
+                    draw_overlay.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill=(0, 0, 0, 180))
+                    
+                    # Composite the overlay onto the image
+                    if img_copy.mode != 'RGBA':
+                        img_copy = img_copy.convert('RGBA')
+                    img_copy = Image.alpha_composite(img_copy, overlay)
+                    draw = ImageDraw.Draw(img_copy)
+                    
+                    # Draw text with highlighted quotes
+                    y = start_y
+                    for line in wrapped_lines:
+                        line_positions = []
+                        current_text = line
+                        
+                        # Check for quoted text in this line
+                        for quoted in quoted_texts:
+                            if quoted in current_text:
+                                parts = current_text.split(f'"{quoted}"', 1)
+                                
+                                # Calculate positions
+                                if parts[0]:
+                                    w1 = draw.textlength(parts[0], font=font)
+                                    line_positions.append((parts[0], (50, y), text_color))
+                                else:
+                                    w1 = 0
+                                
+                                # Add the quoted text with highlight color
+                                quoted_text = f'"{quoted}"'
+                                line_positions.append((quoted_text, (50 + w1, y), highlight_color))
+                                
+                                # If there's text after the quote
+                                if len(parts) > 1 and parts[1]:
+                                    w2 = draw.textlength(quoted_text, font=font)
+                                    line_positions.append((parts[1], (50 + w1 + w2, y), text_color))
+                                
+                                current_text = ""  # Processed this quoted text
+                                break
+                        
+                        # If no quotes were found, add the whole line
+                        if current_text:
+                            line_positions.append((current_text, (50, y), text_color))
+                        
+                        # Draw all parts of the line
+                        for text_part, position, color in line_positions:
+                            draw.text(position, text_part, fill=color, font=font)
+                        
+                        y += line_height
+                    
+                    # Convert to RGB for JPEG
+                    img_preview = img_copy.convert('RGB')
+                    
+                    # Create BytesIO object to save the image
+                    preview_bytes = io.BytesIO()
+                    img_preview.save(preview_bytes, format='JPEG')
+                    preview_bytes.seek(0)
+                    
+                    # Display the preview
+                    st.image(preview_bytes, caption="Aperçu avec texte", use_container_width=True)
+                
+                except Exception as preview_error:
+                    st.warning(f"Impossible de générer l'aperçu avec texte: {preview_error}")
 
             # Add option to upload custom image
             st.markdown("---")
@@ -486,22 +720,16 @@ def display_frame_interface():
                         # Save the resized image
                         img.save(custom_image_path)
                         
-                        # Apply text overlay to the image
-                        from text_overlay import add_text_to_image
-                        target_path = f"cache/img/point_{current_frame+1}.jpg"
-                        add_text_to_image(st.session_state.bullet_points[current_frame], custom_image_path, target_path)
-
                         # Update the frame image path in session state
-                        st.session_state.frame_images[current_frame] = target_path
+                        st.session_state.frame_images[current_frame] = custom_image_path
 
-                        # --- Read the final image and update bytes in session state ---
+                        # Read the final image and update bytes in session state
                         try:
-                            with open(target_path, "rb") as f:
+                            with open(custom_image_path, "rb") as f:
                                 st.session_state.frame_image_bytes[current_frame] = f.read()
                             print(f"Updated image bytes for frame {current_frame} from custom upload.")
                         except Exception as read_error:
                             st.error(f"Failed to read processed custom image for state update: {read_error}")
-                        # --- End update bytes ---
 
                         # Success message
                         st.success("✅ Image téléchargée et appliquée avec succès!")
@@ -552,19 +780,49 @@ def display_frame_interface():
                         # Save the edited text first
                         st.session_state.bullet_points[current_frame] = edited_text
 
-                        # Force regenerate image and get path
-                        new_image_path = generate_image_for_text(edited_text, force_regenerate=True)
-                        st.session_state.frame_images[current_frame] = new_image_path # Update path
-
-                        # --- Read the new image and update bytes in session state ---
+                        # Generate a specific image for this single bullet point
                         try:
-                            with open(new_image_path, "rb") as f:
-                                st.session_state.frame_image_bytes[current_frame] = f.read()
-                            print(f"Updated image bytes for frame {current_frame} from regeneration.")
-                        except Exception as read_error:
-                            st.error(f"Failed to read regenerated image for state update: {read_error}")
-                        # --- End update bytes ---
-
+                            # Generate an optimized image prompt for this specific bullet point
+                            from utils.openai_utils import generate_image_prompt
+                            from image_generator import generate_image_with_prompt
+                            
+                            # Get the full article text for context
+                            article_text = st.session_state.article_text
+                            
+                            # Generate a specific image prompt
+                            image_prompt = generate_image_prompt(edited_text, article_text)
+                            
+                            # Create a unique filename based on hash
+                            text_hash = hashlib.md5(edited_text.encode()).hexdigest()[:10]
+                            new_image_path = f"cache/img/{text_hash}_{int(time.time())}.jpg"
+                            
+                            # Generate the image with the optimized prompt
+                            generate_image_with_prompt(image_prompt, new_image_path)
+                            
+                            # Update session state with raw image path (no text overlay)
+                            st.session_state.frame_images[current_frame] = new_image_path
+                            
+                            # Update the image bytes in session state
+                            try:
+                                with open(new_image_path, "rb") as f:
+                                    st.session_state.frame_image_bytes[current_frame] = f.read()
+                                print(f"Updated image bytes for frame {current_frame} from regeneration.")
+                            except Exception as read_error:
+                                st.error(f"Failed to read regenerated image for state update: {read_error}")
+                            
+                        except Exception as e:
+                            st.error(f"Error regenerating image: {e}")
+                            # Fall back to the simpler approach
+                            new_image_path = generate_image_for_text(edited_text, force_regenerate=True)
+                            st.session_state.frame_images[current_frame] = new_image_path
+                            
+                            # Update the image bytes in session state
+                            try:
+                                with open(new_image_path, "rb") as f:
+                                    st.session_state.frame_image_bytes[current_frame] = f.read()
+                            except Exception as read_error:
+                                st.error(f"Failed to read regenerated image bytes: {read_error}")
+                        
                         st.rerun()
             
             with action_col2:
@@ -643,7 +901,46 @@ def display_frame_interface():
                     st.rerun()
     else:
         st.error("Aucun frame disponible. Veuillez revenir à l'étape précédente.")
-        if st.button("Retour à l'édition des points"):
+        
+        # Display more detailed error information
+        if total_frames == 0:
+            st.warning("Aucun point n'a été défini. Veuillez générer des points dans l'étape précédente.")
+        elif len(st.session_state.frame_images) == 0:
+            st.warning("Aucune image n'a été générée. Veuillez vérifier les logs pour plus de détails.")
+        elif current_frame >= len(st.session_state.frame_images):
+            st.warning(f"Le frame actuel ({current_frame + 1}) est en dehors de la plage des images disponibles ({len(st.session_state.frame_images)}).")
+        elif current_frame >= len(st.session_state.frame_image_bytes):
+            st.warning(f"Le frame actuel ({current_frame + 1}) est en dehors de la plage des données d'image en mémoire ({len(st.session_state.frame_image_bytes)}).")
+        elif st.session_state.frame_image_bytes[current_frame] is None:
+            st.warning("Les données d'image en mémoire sont manquantes pour ce frame.")
+            
+            # Try to recover the image bytes
+            if current_frame < len(st.session_state.frame_images):
+                image_path = st.session_state.frame_images[current_frame]
+                if os.path.exists(image_path):
+                    st.info(f"Tentative de récupération de l'image depuis le disque: {image_path}")
+                    try:
+                        with open(image_path, "rb") as f:
+                            st.session_state.frame_image_bytes[current_frame] = f.read()
+                        st.success("✅ Image récupérée avec succès! Cliquez sur le bouton ci-dessous pour actualiser.")
+                        if st.button("Actualiser", use_container_width=True):
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Erreur lors de la récupération de l'image: {e}")
+                else:
+                    st.warning(f"Le fichier image n'existe pas: {image_path}")
+        
+        # Add option to force regenerate all images
+        if st.button("🔄 Régénérer toutes les images", use_container_width=True):
+            try:
+                # Process bullet points to regenerate all images
+                process_bullet_points()
+                st.success("✅ Images régénérées avec succès!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erreur lors de la régénération des images: {e}")
+        
+        if st.button("Retour à l'édition des points", use_container_width=True):
             st.session_state.current_step = 2
             st.rerun()
     
@@ -1293,8 +1590,8 @@ def generate_video():
                 except Exception as e:
                     print(f"Warning: Failed to remove old file {file}: {e}")
         
-        # Copy existing images to collage directory in the correct order
-        status_text.text("Préparation des images...")
+        # Now add text to images and prepare frames for the video
+        status_text.text("Préparation des images avec texte...")
         progress_bar.progress(20)
         
         # Need to ensure the source images have text overlay
@@ -1307,18 +1604,10 @@ def generate_video():
             st.error(error_msg)
             return
         
-        # Try to use bytes from session state if available
-        use_bytes_from_state = (
-            'frame_image_bytes' in st.session_state and 
-            len(st.session_state.frame_image_bytes) == len(frame_images) and
-            all(bytes is not None for bytes in st.session_state.frame_image_bytes)
-        )
-        
-        print(f"Debug: Using image bytes from session state: {use_bytes_from_state}")
-        
+        # Process each image to add text overlay for the video
         for i, (image_path, text) in enumerate(zip(frame_images, bullet_points)):
             print(f"Processing frame {i+1}: source image path = {image_path}")
-            target_path = f"cache/clg/point_{i+1}.jpg"
+            target_path = f"cache/clg/frame_{i:03d}.jpg"
             
             try:
                 # First check if the source image exists
@@ -1326,16 +1615,13 @@ def generate_video():
                     print(f"Warning: Source image {image_path} not found!")
                     
                     # Try to recreate the image from session state bytes if available
-                    if use_bytes_from_state and i < len(st.session_state.frame_image_bytes):
+                    if i < len(st.session_state.frame_image_bytes) and st.session_state.frame_image_bytes[i]:
                         try:
                             print(f"Attempting to recover image {i+1} from session state bytes")
                             image_bytes = st.session_state.frame_image_bytes[i]
-                            if image_bytes:
-                                with open(image_path, "wb") as f:
-                                    f.write(image_bytes)
-                                print(f"Successfully recovered image from session state bytes: {image_path}")
-                            else:
-                                print(f"Error: No valid bytes found in session state for image {i+1}")
+                            with open(image_path, "wb") as f:
+                                f.write(image_bytes)
+                            print(f"Successfully recovered image from session state bytes: {image_path}")
                         except Exception as bytes_error:
                             print(f"Error recovering image from bytes: {bytes_error}")
                     
@@ -1355,14 +1641,12 @@ def generate_video():
                     # Add text overlay to the image and save directly to collage folder
                     print(f"  Applying text and saving to {target_path}...")
                     
-                    # Create a copy of the image first to avoid modifying the original
-                    from PIL import Image
-                    img = Image.open(image_path)
-                    temp_path = f"cache/img/temp_{i+1}.jpg"
-                    img.save(temp_path)
-                    
-                    # Now add text to the copy
-                    main.add_text_to_image(text, temp_path, target_path)
+                    # Now add text to the image
+                    main.add_text_to_image(
+                        text=text,
+                        image_path=image_path,
+                        output_path=target_path
+                    )
                     
                     # Verify the target file was created
                     if not os.path.exists(target_path):
@@ -1372,13 +1656,6 @@ def generate_video():
                         images_prepared = False
                     else:
                         print(f"  Successfully created {target_path}")
-                        
-                        # Optionally clean up the temp file
-                        try:
-                            if os.path.exists(temp_path):
-                                os.remove(temp_path)
-                        except:
-                            pass
                 else:
                     error_msg = f"Source image {image_path} not found after recovery attempts!"
                     print(f"  ERROR: {error_msg}")
@@ -1627,6 +1904,117 @@ def check_leelawadee_font():
         print("Impossible de créer ou de trouver la police Leelawadee Bold. Utilisation d'une police par défaut.")
     except Exception as e:
         print(f"Erreur lors de la vérification/création de la police: {e}")
+
+def process_bullet_points():
+    """
+    Process bullet points to generate images and frames
+    This is a separate function to make it easier to manage state
+    """
+    with st.spinner("Génération des images pour les points..."):
+        bullet_points = st.session_state.bullet_points
+        article_text = st.session_state.article_text
+        
+        # Generate images for all bullet points at once using batch processing
+        frame_images = generate_images_for_bullet_points(bullet_points, article_text)
+        
+        # Store the generated images in session state
+        st.session_state.frame_images = frame_images
+        
+        # Initialize the frame_image_bytes array if needed
+        if 'frame_image_bytes' not in st.session_state:
+            st.session_state.frame_image_bytes = [None] * len(frame_images)
+        elif len(st.session_state.frame_image_bytes) < len(frame_images):
+            # Extend the array if needed
+            st.session_state.frame_image_bytes.extend([None] * (len(frame_images) - len(st.session_state.frame_image_bytes)))
+        
+        # Load raw images into memory for preview (no text overlay)
+        for i, image_path in enumerate(frame_images):
+            try:
+                # Store the path to the raw image without text
+                if not os.path.exists(image_path):
+                    print(f"Warning: Image file not found: {image_path}")
+                    continue
+                    
+                # Load the raw image bytes into memory
+                with open(image_path, "rb") as f:
+                    st.session_state.frame_image_bytes[i] = f.read()
+                print(f"Loaded raw image bytes for frame {i} from {image_path}")
+                
+                # Calculate automatic duration based on text length
+                if st.session_state.auto_duration:
+                    # Base duration calculation: number of words × average time per word + fixed offset
+                    word_count = len(bullet_points[i].split())
+                    duration = max(3.0, min(8.0, word_count * 0.5 + 1.5))  # Between 3-8 seconds
+                    if i < len(st.session_state.frame_durations):
+                        st.session_state.frame_durations[i] = duration
+                    else:
+                        st.session_state.frame_durations.append(duration)
+                else:
+                    # Default fixed duration
+                    if i < len(st.session_state.frame_durations):
+                        st.session_state.frame_durations[i] = 5.0
+                    else:
+                        st.session_state.frame_durations.append(5.0)
+                
+                # Generate audio for the text if enabled
+                if st.session_state.add_voiceover:
+                    audio_file = f"cache/aud/audio_{i:03d}.mp3"
+                    
+                    # Check if existing audio files exist for this frame and delete them
+                    if os.path.exists(audio_file):
+                        os.remove(audio_file)
+                        
+                    # Generate text-to-speech
+                    language = st.session_state.language
+                    text_to_speech(
+                        text=bullet_points[i],
+                        output_file=audio_file,
+                        language=language
+                    )
+                    
+                    # Store the audio file path
+                    if i < len(st.session_state.frame_audio):
+                        st.session_state.frame_audio[i] = audio_file
+                    else:
+                        st.session_state.frame_audio.append(audio_file)
+                    
+                    # If auto_duration is enabled, update duration based on audio length
+                    if st.session_state.auto_duration and os.path.exists(audio_file):
+                        try:
+                            from tinytag import TinyTag
+                            tag = TinyTag.get(audio_file)
+                            audio_duration = tag.duration
+                            
+                            # Add a small buffer to the audio duration (e.g., 0.5 seconds)
+                            st.session_state.frame_durations[i] = audio_duration + 0.5
+                        except Exception as e:
+                            print(f"Error getting audio duration: {e}")
+                            # Keep the text-based duration if there's an error
+                
+            except Exception as e:
+                st.error(f"Error processing frame {i}: {e}")
+                # Use a fallback frame
+                fallback_image = generate_image_for_text(
+                    f"Error: {bullet_points[i][:30]}...", force_regenerate=True
+                )
+                st.session_state.frame_images[i] = fallback_image
+                
+                # Load fallback image into memory
+                try:
+                    with open(fallback_image, "rb") as f:
+                        st.session_state.frame_image_bytes[i] = f.read()
+                    print(f"Loaded fallback image bytes for frame {i}")
+                except Exception as read_error:
+                    print(f"Warning: Failed to read fallback image file: {read_error}")
+                
+                if i < len(st.session_state.frame_durations):
+                    st.session_state.frame_durations[i] = 3.0
+                else:
+                    st.session_state.frame_durations.append(3.0)  # Default duration
+        
+        # Set current frame to the first frame
+        st.session_state.current_frame = 0
+        st.session_state.needs_refresh = True
 
 if __name__ == "__main__":
     # Create necessary directories

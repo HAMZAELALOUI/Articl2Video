@@ -5,10 +5,13 @@ import textwrap
 from io import BytesIO
 import hashlib
 import re
+import shutil
 from openai import OpenAI
 from text_processor import fix_unicode
 from image_utils import calculate_shadow, smart_wrap_text
 from prompts import get_image_generation_prompt
+from prompts.image_generation_prompt import get_image_generation_prompt
+from utils.openai_utils import generate_image_prompt, generate_batch_image_prompts
 
 def get_openai_api_key():
     """
@@ -36,58 +39,101 @@ def get_openai_api_key():
             
     return api_key
 
-def setup_openai_api_key(key=None):
+def setup_openai_api_key():
     """
-    Set the OpenAI API key in the environment if provided, 
-    or try to read it from secrets or environment variables.
-    Returns True if successful, False otherwise.
-    """
-    if key:
-        os.environ["OPENAI_API_KEY"] = key
-        return True
-        
-    # Try from .streamlit/secrets.toml first (most direct for Streamlit apps)
-    try:
-        import toml
-        secrets_path = '.streamlit/secrets.toml'
-        if os.path.exists(secrets_path):
-            secrets = toml.load(secrets_path)
-            if 'OPENAI_API_KEY' in secrets:
-                os.environ["OPENAI_API_KEY"] = secrets['OPENAI_API_KEY']
-                print("Found OpenAI API key in secrets.toml")
-                return True
-    except Exception as e:
-        print(f"Error reading secrets.toml: {e}")
-        
-    # Fallback to other methods
-    api_key = get_openai_api_key()
-    if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
-        print("Found OpenAI API key in environment variables")
-        return True
+    Set up the OpenAI API key from environment variables or secrets
     
-    return False
-
-def generate_image(text, output_file):
+    Returns:
+        bool: True if API key was successfully set up, False otherwise
     """
-    Generate an image for the given text using OpenAI's DALL-E model
+    try:
+        # Check if OPENAI_API_KEY is already in the environment
+        api_key = os.getenv("OPENAI_API_KEY")
+        
+        if api_key:
+            # API key already exists in environment, nothing to do
+            return True
+        else:
+            # Try to read from secrets.toml
+            try:
+                import streamlit as st
+                if hasattr(st, 'secrets') and "OPENAI_API_KEY" in st.secrets:
+                    os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+                    return True
+            except ImportError:
+                # Streamlit not available, cannot use st.secrets
+                pass
+                
+            # If we got here, we couldn't find the API key
+            print("OpenAI API key not found in environment variables or secrets")
+            return False
+    except Exception as e:
+        print(f"Error setting up OpenAI API key: {e}")
+        return False
+
+def generate_images_for_bullet_points(bullet_points, article_text, output_dir="cache/img/"):
+    """
+    Generate images for all bullet points in a batch
     
     Args:
-        text (str): The text to visualize in the image
+        bullet_points (list): List of bullet point texts
+        article_text (str): The full article text for context
+        output_dir (str): Directory to save the generated images
+        
+    Returns:
+        list: List of paths to the generated images
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    image_paths = []
+    
+    try:
+        # Generate all image prompts in one batch API call
+        print(f"Generating image prompts for {len(bullet_points)} bullet points...")
+        image_prompts_data = generate_batch_image_prompts(bullet_points, article_text)
+        
+        # Process each image prompt
+        for i, prompt_data in enumerate(image_prompts_data):
+            bullet_point = prompt_data["bullet_point"]
+            image_prompt = prompt_data["image_prompt"]
+            keywords = prompt_data.get("keywords", [])
+            
+            print(f"Generating image {i+1}/{len(bullet_points)}: {bullet_point[:30]}...")
+            
+            # Create a unique filename based on the hash of the bullet point
+            text_hash = hashlib.md5(bullet_point.encode()).hexdigest()[:10]
+            output_file = os.path.join(output_dir, f"{text_hash}.jpg")
+            
+            # Generate the image using the optimized prompt
+            try:
+                generate_image_with_prompt(image_prompt, output_file)
+                image_paths.append(output_file)
+            except Exception as e:
+                print(f"Error generating image for bullet point {i+1}: {e}")
+                # Create fallback image
+                fallback_file = create_fallback_image(bullet_point, output_dir)
+                image_paths.append(fallback_file)
+    
+    except Exception as e:
+        print(f"Error in batch image generation: {e}")
+        # Create fallback images for all bullet points
+        for i, bullet_point in enumerate(bullet_points):
+            fallback_file = create_fallback_image(bullet_point, output_dir)
+            image_paths.append(fallback_file)
+    
+    return image_paths
+
+def generate_image_with_prompt(prompt, output_file):
+    """
+    Generate an image using OpenAI's DALL-E model with a specific prompt
+    
+    Args:
+        prompt (str): The detailed image prompt 
         output_file (str): Path to save the generated image
         
     Returns:
         None
     """
-    text = fix_unicode(text)
-
-    # Use the headline directly
-    headline = text
-    
-    # Get the prompt from our prompt module
-    scene_prompt = get_image_generation_prompt(headline)
- 
-    print(f"Generating image with user-specified prompt...")
+    print(f"Generating image with prompt: {prompt[:100]}...")
 
     try:
         # Try to get API key from environment or secrets
@@ -103,7 +149,7 @@ def generate_image(text, output_file):
             # Call OpenAI's image generation with gpt-image-1 model
             response = client.images.generate(
                 model="gpt-image-1",
-                prompt=scene_prompt,
+                prompt=prompt,
                 n=1,
                 size="1024x1024",  # Use standard size first
                 quality="high",
@@ -189,46 +235,98 @@ def generate_image(text, output_file):
         
     except Exception as e:
         print(f"Error generating image: {str(e)}")
-        # Create a fallback gray image with the text
+        raise e
+
+def create_fallback_image(text, output_dir):
+    """
+    Create a fallback image with the given text
+    
+    Args:
+        text (str): The text to display on the fallback image
+        output_dir (str): Directory to save the fallback image
+        
+    Returns:
+        str: Path to the created fallback image
+    """
+    text = fix_unicode(text)
+    text_hash = hashlib.md5(text.encode()).hexdigest()[:10]
+    fallback_file = os.path.join(output_dir, f"fallback_{text_hash}.jpg")
+    
+    try:
+        fallback_img = Image.new('RGB', (1080, 1920), color=(50, 50, 50))
+        draw = ImageDraw.Draw(fallback_img)
+        
         try:
-            fallback_img = Image.new('RGB', (1080, 1920), color=(50, 50, 50))
-            draw = ImageDraw.Draw(fallback_img)
+            # First try with our custom font
+            font = ImageFont.truetype("fonts/Leelawadee Bold.ttf", 40)
+        except Exception as font_error:
+            print(f"Error loading custom font: {font_error}, using default font")
+            # Fall back to default font
+            font = ImageFont.load_default()
             
-            # Try to wrap and draw the text on the fallback image
+        wrapped_text = textwrap.fill(text, width=30)
+        text_color = (255, 255, 255)
+        
+        # Calculate text position to center it
+        text_bbox = draw.textbbox((0, 0), wrapped_text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+        position = ((1080 - text_width) // 2, (1920 - text_height) // 2)
+        
+        # Draw the text
+        draw.text(position, wrapped_text, font=font, fill=text_color)
+        
+        # Save the fallback image
+        fallback_img.save(fallback_file)
+        print(f"Created fallback image: {fallback_file}")
+        
+        return fallback_file
+    except Exception as fallback_error:
+        print(f"Critical error creating fallback image: {fallback_error}")
+        # Last resort: try one more time with absolute minimal approach
+        try:
+            print("Attempting emergency fallback image creation...")
+            simple_img = Image.new('RGB', (1080, 1920), color=(0, 0, 0))
+            simple_img.save(fallback_file)
+            return fallback_file
+        except:
+            print("CRITICAL FAILURE: Could not create even a simple fallback image")
+            # Return the path anyway, let the caller handle missing file
+            return fallback_file
+
+def generate_image(text, output_file):
+    """
+    Generate an image for the given text using OpenAI's DALL-E model
+    
+    Args:
+        text (str): The text to visualize in the image
+        output_file (str): Path to save the generated image
+        
+    Returns:
+        None
+    """
+    text = fix_unicode(text)
+
+    # Use the headline directly
+    headline = text
+    
+    # Get a dedicated image prompt for this text
+    try:
+        # Generate a specific image prompt for this text
+        image_prompt = generate_image_prompt(headline, headline)
+        print(f"Generated image prompt: {image_prompt[:100]}...")
+        generate_image_with_prompt(image_prompt, output_file)
+    except Exception as e:
+        print(f"Error generating image: {str(e)}")
+        # Create a fallback gray image with the text
+        fallback_file = create_fallback_image(headline, os.path.dirname(output_file))
+        
+        # If fallback file is different from requested output file, copy it
+        if fallback_file != output_file:
             try:
-                font = ImageFont.truetype("fonts/Leelawadee Bold.ttf", 40)
-            except Exception as font_error:
-                print(f"Font error: {font_error}, using default font")
-                font = ImageFont.load_default()
-                
-            wrapped_text = textwrap.fill(headline, width=30)
-            text_color = (255, 255, 255)
-            
-            # Calculate text position to center it
-            text_bbox = draw.textbbox((0, 0), wrapped_text, font=font)
-            text_width = text_bbox[2] - text_bbox[0]
-            text_height = text_bbox[3] - text_bbox[1]
-            position = ((1080 - text_width) // 2, (1920 - text_height) // 2)
-            
-            # Draw the text
-            draw.text(position, wrapped_text, font=font, fill=text_color)
-            
-            # Make sure the output directory exists 
-            os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
-            
-            # Save the fallback image
-            fallback_img.save(output_file)
-            print(f"Saved fallback image to {output_file} due to error in image generation")
-            
-        except Exception as fallback_error:
-            print(f"Critical error creating fallback image: {fallback_error}")
-            # Last resort - create a simple black image
-            try:
-                simple_img = Image.new('RGB', (1080, 1920), color=(0, 0, 0))
-                simple_img.save(output_file)
-                print(f"Saved simple black fallback image to {output_file}")
-            except Exception as simple_error:
-                print(f"CRITICAL FAILURE: Could not create even a simple image: {simple_error}")
+                shutil.copy(fallback_file, output_file)
+            except Exception as copy_error:
+                print(f"Error copying fallback image: {copy_error}")
 
 
 def generate_image_for_text(text, force_regenerate=False):
@@ -298,54 +396,5 @@ def generate_image_for_text(text, force_regenerate=False):
                 raise gen_error
     except Exception as e:
         print(f"Error in generate_image_for_text: {str(e)}")
-        # Create a fallback image path
-        fallback_file = f"cache/img/fallback_{hashlib.md5(text.encode()).hexdigest()[:10]}.jpg"
-        
-        # Create fallback image
-        print(f"Creating fallback image: {fallback_file}")
-        try:
-            fallback_img = Image.new('RGB', (1080, 1920), color=(50, 50, 50))
-            draw = ImageDraw.Draw(fallback_img)
-            
-            try:
-                # First try with our custom font
-                font = ImageFont.truetype("fonts/Leelawadee Bold.ttf", 40)
-            except Exception as font_error:
-                print(f"Error loading custom font: {font_error}, using default font")
-                # Fall back to default font
-                font = ImageFont.load_default()
-                
-            wrapped_text = textwrap.fill(text, width=30)
-            text_color = (255, 255, 255)
-            
-            # Calculate text position to center it
-            text_bbox = draw.textbbox((0, 0), wrapped_text, font=font)
-            text_width = text_bbox[2] - text_bbox[0]
-            text_height = text_bbox[3] - text_bbox[1]
-            position = ((1080 - text_width) // 2, (1920 - text_height) // 2)
-            
-            # Draw the text
-            draw.text(position, wrapped_text, font=font, fill=text_color)
-            
-            # Save the fallback image
-            fallback_img.save(fallback_file)
-            print(f"Created fallback image: {fallback_file}")
-            
-            # Also save a copy in the original location for consistency
-            if fallback_file != output_file and output_file:
-                fallback_img.save(output_file)
-                print(f"Also saved fallback image to original path: {output_file}")
-                
-            return fallback_file
-        except Exception as fallback_error:
-            print(f"Critical error creating fallback image: {fallback_error}")
-            # Last resort: try one more time with absolute minimal approach
-            try:
-                print("Attempting emergency fallback image creation...")
-                simple_img = Image.new('RGB', (1080, 1920), color=(0, 0, 0))
-                simple_img.save(fallback_file)
-                return fallback_file
-            except:
-                print("CRITICAL FAILURE: Could not create even a simple fallback image")
-                # Return the path anyway, let the caller handle missing file
-                return fallback_file 
+        # Create a fallback image
+        return create_fallback_image(text, "cache/img/") 
