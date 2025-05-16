@@ -1,22 +1,75 @@
-# Article2Video Application
+# Article2Video
 
-This application converts articles to videos by generating images with OpenAI's GPT-image-1 model, creating voiceovers, and combining them into a video.
+Application qui convertit automatiquement des articles en vidéos narratives.
 
-## Setup
+## Architecture modulaire
 
-1. Ensure you have Python 3.8+ installed
-2. Install the required packages:
-   ```
-   pip install -r requirements.txt
-   ```
-3. Set up your OpenAI API key in one of these ways:
-   - Create a `.streamlit/secrets.toml` file with your API keys (recommended method):
-     ```
-     OPENAI_API_KEY = "your-openai-api-key"
-     GEMINI_API_KEY = "your-gemini-api-key"
-     ```
-   - Set these environment variables manually
-   - Use the utility script to apply your keys: `python apply_api_key.py`
+Le code a été réorganisé en modules pour améliorer la maintenabilité et la lisibilité :
+
+### Modules principaux
+
+- **main.py** - Point d'entrée principal de l'application
+- **web_scraper.py** - Extraction du contenu des articles web
+- **text_processor.py** - Traitement de texte et appels à l'API Gemini
+- **json_utils.py** - Utilitaires pour le traitement des données JSON
+- **image_generator.py** - Génération d'images via l'API OpenAI
+- **image_utils.py** - Fonctions utilitaires pour la manipulation d'images
+- **text_overlay.py** - Ajout de texte avec formatage sur les images
+- **audio_processor.py** - Génération et manipulation audio
+- **video_creator.py** - Création de vidéos à partir d'images et d'audio
+- **app_controller.py** - Coordination du workflow complet
+
+### Interface utilisateur
+
+- **streamlit_app.py** - Interface web Streamlit pour l'application
+
+## Fonctionnalités
+
+- Extraction du contenu d'articles depuis des URLs
+- Résumé automatique avec des points clés en utilisant l'IA Gemini
+- Génération d'images illustratives pour chaque point du résumé
+- Mise en évidence des mots clés en vert (#79C910)
+- Génération de narration audio avec text-to-speech
+- Assemblage en vidéo avec fond musical optionnel
+- Interface utilisateur pour personnaliser la génération
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+## Configuration
+
+Pour utiliser toutes les fonctionnalités, vous devez configurer les clés API suivantes :
+
+1. Clé API OpenAI pour la génération d'images
+2. Clé API Google Gemini pour le résumé d'articles
+
+Créez un fichier `.streamlit/secrets.toml` avec le contenu suivant :
+
+```toml
+OPENAI_API_KEY = "votre-clé-openai"
+GEMINI_API_KEY = "votre-clé-gemini"
+```
+
+## Utilisation
+
+### Via l'interface Streamlit
+
+```bash
+streamlit run streamlit_app.py
+```
+
+### Via la ligne de commande
+
+```bash
+python main.py
+```
+
+## Notes sur les polices
+
+L'application utilise la police Leelawadee Bold pour le texte. Elle doit être présente dans le dossier `fonts/`.
 
 ## API Keys Configuration
 

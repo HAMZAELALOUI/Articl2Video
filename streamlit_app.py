@@ -28,7 +28,14 @@ except Exception as e:
     st.stop()
 
 # Now import main functions (which will use the environment variables)
-from main import scrape_text_from_url, call_llm_api, save_and_clean_json, fix_unicode, do_work, clear_cache, generate_image_for_text, text_to_speech, add_text_to_image
+from web_scraper import scrape_text_from_url
+from text_processor import call_llm_api, fix_unicode
+from json_utils import save_and_clean_json
+from app_controller import do_work
+from video_creator import clear_cache
+from image_generator import generate_image_for_text
+from text_overlay import add_text_to_image
+from audio_processor import text_to_speech
 from PIL import Image
 from io import BytesIO
 import music_api  # Import the music API module
@@ -169,7 +176,7 @@ def main():
             
         slidenumber = st.slider(
             "Nombre de points",
-            min_value=8,
+            min_value=2,
             max_value=12,
             value=10,
             key="slidenumber_slider"
@@ -475,7 +482,7 @@ def display_frame_interface():
                         img.save(custom_image_path)
                         
                         # Apply text overlay to the image
-                        from main import add_text_to_image
+                        from text_overlay import add_text_to_image
                         target_path = f"cache/img/point_{current_frame+1}.jpg"
                         add_text_to_image(st.session_state.bullet_points[current_frame], custom_image_path, target_path)
 
