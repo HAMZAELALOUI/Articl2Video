@@ -464,14 +464,14 @@ def display_editing_interface():
             st.session_state.frame_image_bytes = []
             st.session_state.frame_durations = []
             st.session_state.frame_audio = []
-            
-            # Process bullet points to generate images and frames
+                    
+                        # Process bullet points to generate images and frames
             process_bullet_points()
             
             # Move to the next step
             st.session_state.current_step = 3
             st.rerun()
-    
+                    
     with col1:
         if st.button("⬅️ Retour", use_container_width=True):
             st.session_state.current_step = 1
@@ -648,7 +648,7 @@ def display_frame_interface():
                         
                         # Save the resized image
                         img.save(custom_image_path)
-                        
+
                         # Update the frame image path in session state
                         st.session_state.frame_images[current_frame] = custom_image_path
 
@@ -732,12 +732,11 @@ def display_frame_interface():
                             st.session_state.frame_images[current_frame] = new_image_path
                             
                             # Update the image bytes in session state
-                            try:
-                                with open(new_image_path, "rb") as f:
-                                    st.session_state.frame_image_bytes[current_frame] = f.read()
-                                print(f"Updated image bytes for frame {current_frame} from regeneration.")
-                            except Exception as read_error:
-                                st.error(f"Failed to read regenerated image for state update: {read_error}")
+                            with open(new_image_path, "rb") as f:
+                                st.session_state.frame_image_bytes[current_frame] = f.read()
+                            print(f"Updated image bytes for frame {current_frame} from regeneration.")
+                        except Exception as e:
+                            st.error(f"Failed to read regenerated image for state update: {e}")
                             
                         except Exception as e:
                             st.error(f"Error regenerating image: {e}")
@@ -751,7 +750,7 @@ def display_frame_interface():
                                     st.session_state.frame_image_bytes[current_frame] = f.read()
                             except Exception as read_error:
                                 st.error(f"Failed to read regenerated image bytes: {read_error}")
-                        
+
                         st.rerun()
             
             with action_col2:

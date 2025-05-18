@@ -131,16 +131,26 @@ def add_text_to_image(text, image_path, output_path):
         img = Image.alpha_composite(img, overlay)
         draw = ImageDraw.Draw(img)
         
+        # Remove quotes from the text for display
+        # This preserves the ability to highlight keywords while removing visual quotes
+        display_text = text
+        for quoted in quoted_texts:
+            # Replace each quoted text with just the text (no quotes)
+            display_text = display_text.replace(f'"{quoted}"', quoted)
+        
+        # Re-wrap the display text without quotes
+        wrapped_display_lines = wrapper.wrap(display_text)
+        
         # Draw text with highlighted quotes
         y = start_y
-        for line in wrapped_lines:
+        for i, line in enumerate(wrapped_display_lines):
             line_positions = []
             current_text = line
             
-            # Check for quoted text in this line
+            # Check for quoted text in this line (using original quoted texts list)
             for quoted in quoted_texts:
                 if quoted in current_text:
-                    parts = current_text.split(f'"{quoted}"', 1)
+                    parts = current_text.split(quoted, 1)
                     
                     # Calculate positions
                     if parts[0]:
@@ -149,16 +159,15 @@ def add_text_to_image(text, image_path, output_path):
                     else:
                         w1 = 0
                     
-                    # Add the quoted text with highlight color
-                    quoted_text = f'"{quoted}"'
-                    line_positions.append((quoted_text, (50 + w1, y), highlight_color_rgb))
+                    # Add the keyword with highlight color, without quotes
+                    line_positions.append((quoted, (50 + w1, y), highlight_color_rgb))
                     
-                    # If there's text after the quote
+                    # If there's text after the keyword
                     if len(parts) > 1 and parts[1]:
-                        w2 = draw.textlength(quoted_text, font=font)
+                        w2 = draw.textlength(quoted, font=font)
                         line_positions.append((parts[1], (50 + w1 + w2, y), text_color))
                     
-                    current_text = ""  # Processed this quoted text
+                    current_text = ""  # Processed this text
                     break
             
             # If no quotes were found, add the whole line
@@ -476,6 +485,15 @@ def add_text_to_image_old(text, image_path, output_path):
     # Process text with highlighted parts
     has_highlights = len(green_words) > 0
     
+    # Remove quotation marks from the display text
+    display_text = text
+    if has_highlights:
+        for word in green_words:
+            # Replace quoted words with just the words (no quotes)
+            # Handle different quotation patterns
+            display_text = re.sub(f'"{word}"', word, display_text)
+            display_text = re.sub(f'\\\\"?{word}\\\\"?', word, display_text)
+    
     # Calculate text positioning for left alignment
     text_x = left_margin  # Left margin
     
@@ -535,7 +553,11 @@ def add_text_to_image_old(text, image_path, output_path):
     
     # Draw text line by line with tight spacing (1.1)
     line_y = text_y
-    for line in lines:
+    
+    # Update the smart_wrap_text to use the display_text without quotes
+    display_lines = smart_wrap_text(display_text, font, max_text_width, draw)
+    
+    for line in display_lines:
         # Force additional text wrap check to catch any lines that might be too long
         if font.getlength(line) > max_text_width:
             # If line is still too long, use our smart wrapping to break it again
@@ -550,24 +572,21 @@ def add_text_to_image_old(text, image_path, output_path):
                     parts = []
                     last_end = 0
                     
-                    # Need to modify how we're finding matches for highlighting
-                    for match in re.finditer(green_words_pattern, sub_line):
-                        # Add text before the match
-                        if match.start() > last_end:
-                            parts.append((sub_line[last_end:match.start()], "white"))
-                        
-                        # Find which group in the regex matched (the word inside quotes)
-                        match_word = None
-                        for i, group in enumerate(match.groups(), 1):
-                            if group:
-                                match_word = group
-                                break
-                        
-                        if match_word:
-                            # Add the quoted text (without quotes) in green
-                            parts.append((match_word, "green"))
-                        
-                        last_end = match.end()
+                    # Process line to highlight keywords without showing quotation marks
+                    for word in green_words:
+                        # Find the word in the line
+                        word_index = sub_line.find(word)
+                        while word_index != -1:
+                            # Add text before the keyword
+                            if word_index > last_end:
+                                parts.append((sub_line[last_end:word_index], "white"))
+                            
+                            # Add the keyword in green
+                            parts.append((word, "green"))
+                            
+                            # Update last_end and search for next occurrence
+                            last_end = word_index + len(word)
+                            word_index = sub_line.find(word, last_end)
                     
                     # Add any remaining text
                     if last_end < len(sub_line):
@@ -633,23 +652,21 @@ def add_text_to_image_old(text, image_path, output_path):
                 parts = []
                 last_end = 0
                 
-                for match in re.finditer(green_words_pattern, line):
-                    # Add text before the match
-                    if match.start() > last_end:
-                        parts.append((line[last_end:match.start()], "white"))
-                    
-                    # Find which group in the regex matched (the word inside quotes)
-                    match_word = None
-                    for i, group in enumerate(match.groups(), 1):
-                        if group:
-                            match_word = group
-                            break
-                    
-                    if match_word:
-                        # Add the quoted text (without quotes) in green
-                        parts.append((match_word, "green"))
-                    
-                    last_end = match.end()
+                # Process line to highlight keywords without showing quotation marks
+                for word in green_words:
+                    # Find the word in the line
+                    word_index = line.find(word)
+                    while word_index != -1:
+                        # Add text before the keyword
+                        if word_index > last_end:
+                            parts.append((line[last_end:word_index], "white"))
+                        
+                        # Add the keyword in green
+                        parts.append((word, "green"))
+                        
+                        # Update last_end and search for next occurrence
+                        last_end = word_index + len(word)
+                        word_index = line.find(word, last_end)
                 
                 # Add any remaining text
                 if last_end < len(line):
