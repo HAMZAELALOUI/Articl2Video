@@ -540,6 +540,26 @@ def display_frame_interface():
                 else:
                      st.warning(f"Image non disponible (fichier non trouvé?) {image_path}")
             # --- End image loading --- 
+            
+            # Navigation buttons right below the image for better UX
+            nav_buttons_col1, nav_buttons_col2, nav_buttons_col3 = st.columns(3)
+            with nav_buttons_col1:
+                if current_frame > 0:
+                    if st.button("⬅️ Précédent", use_container_width=True, key=f"img_prev_{current_frame}"):
+                        # Go to previous frame
+                        st.session_state.current_frame -= 1
+                        st.rerun()
+            
+            with nav_buttons_col2:
+                # Display frame counter in the middle
+                st.markdown(f"<div style='text-align: center; font-weight: bold;'>{current_frame + 1}/{total_frames}</div>", unsafe_allow_html=True)
+            
+            with nav_buttons_col3:
+                if current_frame < total_frames - 1:
+                    if st.button("Suivant ➡️", use_container_width=True, key=f"img_next_{current_frame}"):
+                        # Go to next frame
+                        st.session_state.current_frame += 1
+                        st.rerun()
 
             # Create a preview of text overlay for reference, but don't save it
             with st.expander("Aperçu avec texte (cliquez pour voir)", expanded=False):
@@ -780,38 +800,22 @@ def display_frame_interface():
 
                             st.rerun()
         
-        # Navigation row - Moved outside the col1/col2 layout for better consistency
+        # Navigation row - Simplified now that we have navigation buttons near the image
         st.write("")
-        nav_col1, nav_col2, nav_col3, nav_col4, nav_col5 = st.columns([1, 1, 3, 1, 1])
+        nav_col1, nav_col2, nav_col3 = st.columns([1, 3, 1])
         
         # Always save the current edits before navigation
         st.session_state.bullet_points[current_frame] = edited_text
         
         with nav_col1:
-            if current_frame > 0:
-                if st.button("⬅️ Précédent", use_container_width=True, key=f"prev_{current_frame}"):
-                    # Go to previous frame
-                    st.session_state.current_frame -= 1
-                    st.rerun()
-        
-        with nav_col2:
-            if st.button("⬅️ Retour", use_container_width=True, key=f"back_{current_frame}"):
+            if st.button("⬅️ Retour à l'édition", use_container_width=True, key=f"back_{current_frame}"):
                 st.session_state.current_step = 2
                 st.rerun()
         
-        with nav_col4:
-            # Next button or finish button
-            if current_frame < total_frames - 1:
-                next_button_label = "Suivant ➡️"
-            else:
-                next_button_label = "Terminer ➡️"
-                
-            if st.button(next_button_label, use_container_width=True, key=f"next_{current_frame}"):                
-                # If not the last frame, go to next
-                if current_frame < total_frames - 1:
-                    st.session_state.current_frame += 1
-                    st.rerun()
-                else:
+        with nav_col3:
+            # Only keep the finish button
+            if current_frame == total_frames - 1:
+                if st.button("Terminer ➡️", use_container_width=True, key=f"finish_{current_frame}"):                
                     # Move to the next step - either audio or video generation
                     if st.session_state.add_voiceover or st.session_state.add_music:
                         # If voiceover or music is enabled, go to audio step
@@ -819,13 +823,6 @@ def display_frame_interface():
                     else:
                         # Otherwise skip to video generation
                         st.session_state.current_step = 5
-                    st.rerun()
-        
-        with nav_col5:
-            if current_frame < total_frames - 1:
-                if st.button("➡️ Dernier", use_container_width=True, key=f"last_{current_frame}"):
-                    # Go to last frame
-                    st.session_state.current_frame = total_frames - 1
                     st.rerun()
     else:
         st.error("Aucun frame disponible. Veuillez revenir à l'étape précédente.")
