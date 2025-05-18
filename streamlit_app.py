@@ -36,7 +36,7 @@ from app_controller import do_work
 from video_creator import clear_cache
 from image_generator import generate_image_for_text, generate_images_for_bullet_points
 from text_overlay import add_text_to_image
-from audio_processor import text_to_speech
+from audio_processor import text_to_speech, prepare_background_music
 from openai_client import summarize_with_openai
 from PIL import Image
 from io import BytesIO
@@ -1127,6 +1127,15 @@ def display_audio_interface():
                 if os.path.exists("cache/music/background.mp3") and 'selected_music_title' in st.session_state:
                     st.markdown("---")
                     st.markdown(f"**Musique actuelle:** {st.session_state.selected_music_title}")
+                    st.success("✅ Cette musique sera utilisée dans votre vidéo finale.")
+                    
+                    # Preview the selected music
+                    try:
+                        with open("cache/music/background.mp3", "rb") as audio_file:
+                            audio_bytes = audio_file.read()
+                            st.audio(audio_bytes, format="audio/mp3")
+                    except Exception as e:
+                        st.warning(f"Impossible de lire l'aperçu audio: {e}")
                     
                     # Option to remove current music
                     if st.button("Supprimer la musique actuelle"):
@@ -1136,6 +1145,8 @@ def display_audio_interface():
                                 del st.session_state.selected_music_title
                             st.success("✅ Musique supprimée avec succès!")
                             st.rerun()
+                else:
+                    st.warning("⚠️ Aucune musique sélectionnée. Veuillez choisir une musique dans la bibliothèque ou télécharger votre propre fichier MP3.")
         else:
             st.info("Option musique de fond désactivée. Pour l'activer, cochez l'option dans les paramètres.")
     
@@ -1424,7 +1435,16 @@ def display_video_generation():
         with col1:
             st.write(f"**Langue:** {st.session_state.language}")
             st.write(f"**Points:** {len(st.session_state.bullet_points)}")
-            st.write(f"**Musique:** {'Activée' if st.session_state.add_music else 'Désactivée'}")
+            
+            # Enhanced music info that shows actual selected track
+            if st.session_state.add_music:
+                music_path = "cache/music/background.mp3"
+                if os.path.exists(music_path) and 'selected_music_title' in st.session_state:
+                    st.write(f"**Musique:** '{st.session_state.selected_music_title}'")
+                else:
+                    st.write("**Musique:** Activée (aucune musique sélectionnée)")
+            else:
+                st.write("**Musique:** Désactivée")
         with col2:
             st.write(f"**Voix off:** {'Activée' if st.session_state.add_voiceover else 'Désactivée'}")
             st.write(f"**Durée automatique:** {'Activée' if st.session_state.auto_duration else 'Désactivée'}")
@@ -1478,6 +1498,43 @@ def generate_video():
     progress_bar = st.progress(0)
     status_text = st.empty()
     
+    # Check for music file first if music is enabled
+    if st.session_state.add_music:
+        music_path = "cache/music/background.mp3"
+        if os.path.exists(music_path) and 'selected_music_title' in st.session_state:
+            st.info(f"🎵 La musique '{st.session_state.selected_music_title}' sera utilisée dans la vidéo.")
+            
+            # Make sure the cache/music directory exists
+            os.makedirs("cache/music", exist_ok=True)
+            
+            # Pre-process the music file with our prepare_background_music function
+            # to ensure it's ready for the video generation
+            try:
+                # First make a backup copy in case something goes wrong
+                backup_path = "cache/music/backup_music.mp3"
+                with open(music_path, "rb") as src, open(backup_path, "wb") as dst:
+                    dst.write(src.read())
+                
+                # Calculate total duration for the video
+                total_duration = sum(st.session_state.frame_durations) + 3.0  # Add 3s for outro
+                
+                # Import here to avoid circular imports
+                from audio_processor import prepare_background_music
+                
+                # Process the music file to match the video duration
+                processed_music = prepare_background_music(music_path, total_duration)
+                
+                if processed_music and os.path.exists(processed_music):
+                    print(f"Music successfully processed and saved to {processed_music}")
+                else:
+                    print("Warning: Music processing failed, but will still try to use the original music file.")
+                
+            except Exception as e:
+                st.warning(f"⚠️ Une erreur s'est produite lors du traitement de la musique, mais nous allons quand même essayer de l'utiliser: {e}")
+                print(f"Music processing error: {e}")
+        else:
+            st.warning("⚠️ Option musique activée mais aucune musique n'a été sélectionnée. Votre vidéo sera créée sans musique.")
+            
     # Show steps
     status_text.text("Préparation des fichiers...")
     progress_bar.progress(10)
@@ -1712,6 +1769,23 @@ def generate_video():
         if not generated_summary or 'summary' not in generated_summary:
             # Create a temporary summary structure if needed
             generated_summary = {'summary': bullet_points}
+        
+        # Debug music file existence before calling do_work
+        if add_music:
+            print("\n==== MUSIC FILE CHECK BEFORE VIDEO GENERATION ====")
+            background_music = "cache/music/background.mp3"
+            processed_music = "cache/music/processed_background.mp3"
+            print(f"Background music file exists: {os.path.exists(background_music)}")
+            print(f"Processed music file exists: {os.path.exists(processed_music)}")
+            if os.path.exists(background_music):
+                try:
+                    from moviepy.editor import AudioFileClip
+                    clip = AudioFileClip(background_music)
+                    print(f"Background music duration: {clip.duration:.1f}s")
+                    clip.close()
+                except Exception as e:
+                    print(f"Error checking music file: {e}")
+            print("================================================\n")
         
         # Call do_work with the necessary parameters, but don't regenerate images
         main.do_work(
