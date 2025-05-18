@@ -103,7 +103,7 @@ def add_text_to_image(text, image_path, output_path):
         wrapped_lines = wrapper.wrap(text)
         
         # Calculate text height to position correctly
-        line_height = 60
+        line_height = 70  # Increased from 60 to 70 for better spacing between lines
         text_block_height = len(wrapped_lines) * line_height
         
         # Adjust start_y to account for logo if present
@@ -123,7 +123,7 @@ def add_text_to_image(text, image_path, output_path):
         # Create a semi-transparent overlay
         overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
         draw_overlay = ImageDraw.Draw(overlay)
-        draw_overlay.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill=(0, 0, 0, 180))
+        draw_overlay.rectangle([(bg_left, bg_top), (bg_right, bg_bottom)], fill=(0, 0, 0, 110))  # Lighter background (reduced opacity from 140 to 110)
         
         # Composite the overlay onto the image
         if img.mode != 'RGBA':
@@ -315,7 +315,7 @@ def add_text_to_image_old(text, image_path, output_path):
     overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
     overlay_draw = ImageDraw.Draw(overlay)
     overlay_draw.rectangle([(0, 0), (width, height)], 
-                           fill=(50, 50, 50, 140))  # Semi-transparent gray with reduced opacity
+                           fill=(50, 50, 50, 110))  # Very light background (reduced opacity from 140 to 110)
     
     # Paste overlay onto the image
     img_with_overlay = Image.alpha_composite(img_with_overlay.convert('RGBA'), overlay)
@@ -536,7 +536,7 @@ def add_text_to_image_old(text, image_path, output_path):
     text_bg_draw.rounded_rectangle(
         [bg_x0, bg_y0, bg_x1, bg_y1],
         radius=corner_radius,
-        fill=(0, 0, 0, 160)  # Slightly darker for better readability
+        fill=(0, 0, 0, 110)  # Much lighter background (reduced opacity from 160 to 110)
     )
     
     # Apply a gaussian blur for modern look
@@ -634,8 +634,8 @@ def add_text_to_image_old(text, image_path, output_path):
                     # Draw the text in white
                     draw.text((text_x, line_y), sub_line, font=font, fill="#FFFFFF")
                 
-                # Move to next line with tight spacing (1.1)
-                line_y += font_size * 1.1
+                # Move to next line with tight spacing (1.3)
+                line_y += font_size * 1.3
                 
                 # Safety check - stop if we're getting too close to bottom
                 if line_y > height - bottom_margin:
@@ -710,8 +710,8 @@ def add_text_to_image_old(text, image_path, output_path):
                 # Draw the text in white
                 draw.text((text_x, line_y), line, font=font, fill="#FFFFFF")
             
-            # Move to next line with tight spacing (1.1)
-            line_y += font_size * 1.1
+            # Move to next line with tight spacing (1.3)
+            line_y += font_size * 1.3
             
             # Safety check - stop if we're getting too close to bottom
             if line_y > height - bottom_margin:
