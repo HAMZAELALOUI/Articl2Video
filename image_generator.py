@@ -133,7 +133,7 @@ def generate_image_with_prompt(prompt, output_file):
     Returns:
         None
     """
-    print(f"Generating image with prompt: {prompt[:100]}...")
+    print(f"Generating image with prompt: {prompt[:10000]}...")
 
     try:
         # Try to get API key from environment or secrets

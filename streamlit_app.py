@@ -492,25 +492,7 @@ def display_frame_interface():
     # Information about font
     st.info("💡 La police Leelawadee Bold est utilisée pour le texte, avec les mots clés entre guillemets mis en évidence en vert (#79C910). Le texte sera ajouté aux images lors de la génération de la vidéo finale.")
     
-    # Display debug information in a collapsible section
-    with st.expander("Informations de débogage (cliquez pour voir)", expanded=False):
-        st.write(f"Nombre de points: {len(st.session_state.bullet_points)}")
-        st.write(f"Nombre d'images: {len(st.session_state.frame_images)}")
-        st.write(f"Nombre d'images en mémoire: {len(st.session_state.frame_image_bytes)}")
-        st.write(f"Nombre de durées: {len(st.session_state.frame_durations)}")
-        
-        if len(st.session_state.frame_images) > 0:
-            st.write("Chemins des images:")
-            for i, path in enumerate(st.session_state.frame_images):
-                st.write(f"Image {i+1}: {path} (existe: {os.path.exists(path)})")
-        
-        if current_frame < len(st.session_state.frame_images):
-            current_image_path = st.session_state.frame_images[current_frame]
-            st.write(f"Image actuelle: {current_image_path}")
-            st.write(f"L'image existe: {os.path.exists(current_image_path)}")
-            
-            if current_frame < len(st.session_state.frame_image_bytes):
-                st.write(f"Données d'image en mémoire: {'Présentes' if st.session_state.frame_image_bytes[current_frame] else 'Absentes'}")
+    # Remove debug information section
     
     # Display current frame
     # Ensure we have paths AND bytes data
@@ -528,8 +510,7 @@ def display_frame_interface():
                 img = Image.open(BytesIO(image_data))
                 st.image(img, caption=f"Slide {current_frame + 1} (prévisualisation sans texte)", use_container_width=True, width=300)
             except Exception as e:
-                st.error(f"Erreur affichage image depuis cache mémoire: {e}")
-                # Fallback: try loading from path if bytes failed
+                # Do not show error log to user, just fallback
                 image_path = st.session_state.frame_images[current_frame]
                 if os.path.exists(image_path):
                     img_fallback = read_image(image_path)
@@ -538,7 +519,7 @@ def display_frame_interface():
                     else:
                         st.warning(f"Image non disponible (fichier corrompu?) {image_path}")
                 else:
-                     st.warning(f"Image non disponible (fichier non trouvé?) {image_path}")
+                    st.warning(f"Image non disponible (fichier non trouvé?) {image_path}")
             # --- End image loading --- 
             
             # Navigation buttons right below the image for better UX
@@ -725,7 +706,7 @@ def display_frame_interface():
             with action_col1:
                 # Regenerate image button
                 if st.button("🔄 Régénérer l'image", use_container_width=True, key=f"regenerate_{current_frame}"):
-                    with st.spinner("Génération d'une nouvelle image..."):
+                    with st.spinner("Génération d'une nouvelle image... (cela peut prendre quelques minutes)"):
                         # Save the edited text first
                         st.session_state.bullet_points[current_frame] = edited_text
 
@@ -778,7 +759,7 @@ def display_frame_interface():
                 if os.path.exists(f"cache/custom_img/frame_{current_frame}.jpg"):
                     if st.button("⚠️ Retirer image custom", use_container_width=True, key=f"remove_custom_{current_frame}"):
                         # Regenerate the AI image
-                        with st.spinner("Restauration de l'image générée..."):
+                        with st.spinner("Restauration de l'image générée... (cela peut prendre quelques minutes)"):
                             # Save the edited text first
                             st.session_state.bullet_points[current_frame] = edited_text
 
@@ -824,50 +805,62 @@ def display_frame_interface():
                         # Otherwise skip to video generation
                         st.session_state.current_step = 5
                     st.rerun()
-    else:
-        st.error("Aucun frame disponible. Veuillez revenir à l'étape précédente.")
         
-        # Display more detailed error information
-        if total_frames == 0:
-            st.warning("Aucun point n'a été défini. Veuillez générer des points dans l'étape précédente.")
-        elif len(st.session_state.frame_images) == 0:
-            st.warning("Aucune image n'a été générée. Veuillez vérifier les logs pour plus de détails.")
-        elif current_frame >= len(st.session_state.frame_images):
-            st.warning(f"Le frame actuel ({current_frame + 1}) est en dehors de la plage des images disponibles ({len(st.session_state.frame_images)}).")
-        elif current_frame >= len(st.session_state.frame_image_bytes):
-            st.warning(f"Le frame actuel ({current_frame + 1}) est en dehors de la plage des données d'image en mémoire ({len(st.session_state.frame_image_bytes)}).")
-        elif st.session_state.frame_image_bytes[current_frame] is None:
-            st.warning("Les données d'image en mémoire sont manquantes pour ce frame.")
+        # Add image prompt preview expander at the bottom (just before closing div)
+        with st.expander("🔍 Prévisualiser les prompts d'image (pour débogage)"):
+            st.write("Cette fonctionnalité permet de voir les prompts d'image exacts qui seraient envoyés à DALL-E pour générer les images.")
             
-            # Try to recover the image bytes
-            if current_frame < len(st.session_state.frame_images):
-                image_path = st.session_state.frame_images[current_frame]
-                if os.path.exists(image_path):
-                    st.info(f"Tentative de récupération de l'image depuis le disque: {image_path}")
-                    try:
-                        with open(image_path, "rb") as f:
-                            st.session_state.frame_image_bytes[current_frame] = f.read()
-                        st.success("✅ Image récupérée avec succès! Cliquez sur le bouton ci-dessous pour actualiser.")
-                        if st.button("Actualiser", use_container_width=True):
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"Erreur lors de la récupération de l'image: {e}")
-                else:
-                    st.warning(f"Le fichier image n'existe pas: {image_path}")
-        
-        # Add option to force regenerate all images
-        if st.button("🔄 Régénérer toutes les images", use_container_width=True):
-            try:
-                # Process bullet points to regenerate all images
-                process_bullet_points()
-                st.success("✅ Images régénérées avec succès!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Erreur lors de la régénération des images: {e}")
-        
-        if st.button("Retour à l'édition des points", use_container_width=True):
-            st.session_state.current_step = 2
-            st.rerun()
+            if st.button("Générer et prévisualiser les prompts d'image", key="preview_image_prompts_btn"):
+                try:
+                    with st.spinner("Génération des prompts d'image... (cela peut prendre quelques secondes)"):
+                        # Import needed modules
+                        import json
+                        from prompts.image_generation_prompt import get_image_generation_prompt
+                        from utils.openai_utils import generate_batch_image_prompts
+                        
+                        # Get current bullet points and article text from session state
+                        bullet_points = st.session_state.bullet_points
+                        article_text = st.session_state.article_text
+                        
+                        if not bullet_points or not article_text:
+                            st.warning("Impossible de générer les prompts: points ou texte d'article manquants.")
+                        else:
+                            # First, show the raw prompt used
+                            input_prompt = get_image_generation_prompt(bullet_points, article_text)
+                            st.markdown("### Prompt de requête")
+                            with st.expander("Voir le prompt de requête envoyé à l'API"):
+                                st.code(json.dumps(input_prompt, indent=2, ensure_ascii=False), language="json")
+                            
+                            # Then generate and show the output prompts
+                            output_prompts = generate_batch_image_prompts(bullet_points, article_text)
+                            
+                            # Display the result prompts
+                            st.markdown("### Prompts d'image générés")
+                            st.info(f"✅ {len(output_prompts)} prompts d'image générés avec succès!")
+                            
+                            # Save to a temporary file for download
+                            temp_file_path = "image_prompts_preview.json"
+                            with open(temp_file_path, "w", encoding="utf-8") as f:
+                                json.dump({"image_prompts": output_prompts}, f, indent=2, ensure_ascii=False)
+                            
+                            # Add download button
+                            with open(temp_file_path, "r", encoding="utf-8") as f:
+                                st.download_button(
+                                    label="📥 Télécharger les prompts (JSON)",
+                                    data=f.read(),
+                                    file_name="image_prompts.json",
+                                    mime="application/json"
+                                )
+                            
+                            # Display each prompt in an expander
+                            for i, prompt_data in enumerate(output_prompts):
+                                with st.expander(f"Prompt {i+1}: {prompt_data['bullet_point'][:50]}..."):
+                                    st.markdown(f"**Bullet point:** {prompt_data['bullet_point']}")
+                                    st.markdown(f"**Mots clés:** {', '.join(prompt_data['keywords'])}")
+                                    st.markdown("**Prompt d'image:**")
+                                    st.code(prompt_data['image_prompt'])
+                except Exception as e:
+                    st.error(f"Erreur lors de la génération des prompts: {str(e)}")
     
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1909,7 +1902,7 @@ def process_bullet_points():
     Process bullet points to generate images and frames
     This is a separate function to make it easier to manage state
     """
-    with st.spinner("Génération des images pour les points..."):
+    with st.spinner("Génération des images pour les points... (cela peut prendre quelques minutes)"):
         bullet_points = st.session_state.bullet_points
         article_text = st.session_state.article_text
         

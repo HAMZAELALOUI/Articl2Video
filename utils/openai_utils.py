@@ -8,8 +8,15 @@ from prompts.openai_summarization_prompt import get_openai_summarization_prompt
 # Load environment variables
 load_dotenv()
 
-# Initialize OpenAI client
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# We'll initialize the client in each function to ensure we get the latest API key
+def get_openai_client():
+    """
+    Get an OpenAI client with the API key from environment
+    
+    Returns:
+        OpenAI: Initialized OpenAI client
+    """
+    return openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def generate_image_prompt(bullet_point, article_text):
     """
@@ -26,27 +33,35 @@ def generate_image_prompt(bullet_point, article_text):
         # Get prompt template for single bullet point
         prompt = get_image_generation_prompt(bullet_point, article_text)
         
+        # Initialize client
+        client = get_openai_client()
+        
         # Call OpenAI API with GPT-4o
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=prompt["messages"],
-            response_format={"type": "json_object"},
+            response_format=prompt["response_format"],
             temperature=0.7,
-            max_tokens=4000  # Increased from 3000 to handle more detailed prompts
+            max_tokens=4000  # Reduced to stay within GPT-4o's limits
         )
         
-        # Parse the JSON response and extract just the first prompt
-        result = json.loads(response.choices[0].message.content)
-        if "image_prompts" in result and len(result["image_prompts"]) > 0:
-            image_prompt = result["image_prompts"][0]["image_prompt"]
-            return image_prompt
-        else:
-            raise ValueError("Invalid response format from OpenAI API")
+        # Get the prompt directly from the response content - this should already be
+        # entirely object-focused with no humans/faces mentioned
+        image_prompt = response.choices[0].message.content.strip()
+        
+        # Ensure prompt ends with the aspect ratio if it doesn't already
+        if not image_prompt.endswith("--ar 9:16"):
+            if image_prompt.endswith("."):
+                image_prompt = image_prompt[:-1] + ", --ar 9:16"
+            else:
+                image_prompt += ", --ar 9:16"
+        
+        return image_prompt
     
     except Exception as e:
         print(f"Error generating image prompt: {e}")
-        # Return a fallback prompt if there's an error
-        return f"Ultra-realistic 4K vertical editorial photograph illustrating: {bullet_point}. Documentary press style in Le Matin du Sahara's North African press photo aesthetic, neutral lighting, natural color palette, moderate saturation, NO TEXT, NO FACES, exclude religious or political symbols."
+        # Return an object-focused fallback prompt with no mention of people/faces
+        return f"detailed close-up of symbolic objects representing {bullet_point}, aged manuscripts on wooden desk with brass instruments, dramatic directional lighting highlighting intricate textures and details, ancient library setting with bookshelves in background, dust particles visible in light beams, captured with Canon EOS R5, 50mm f/1.2 lens, documentary editorial style, hyperrealistic 4K resolution, perfect composition, --ar 9:16"
 
 def generate_batch_image_prompts(bullet_points, article_text):
     """
@@ -59,36 +74,34 @@ def generate_batch_image_prompts(bullet_points, article_text):
     Returns:
         list: List of dictionaries containing bullet points and their image prompts
     """
-    try:
-        # Get prompt template for multiple bullet points
-        prompt = get_image_generation_prompt(bullet_points, article_text)
-        
-        # Call OpenAI API with GPT-4o
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=prompt["messages"],
-            response_format={"type": "json_object"},
-            temperature=0.7,
-            max_tokens=10000  # Increased to handle more detailed prompts for multiple bullet points
-        )
-        
-        # Parse the JSON response
-        result = json.loads(response.choices[0].message.content)
-        if "image_prompts" in result:
-            return result["image_prompts"]
-        else:
-            raise ValueError("Invalid response format from OpenAI API")
+    results = []
     
-    except Exception as e:
-        print(f"Error generating batch image prompts: {e}")
-        # Return fallback prompts if there's an error
-        return [
-            {
+    # Process each bullet point individually using the single prompt generator
+    for bp in bullet_points:
+        try:
+            # Generate image prompt for this bullet point
+            image_prompt = generate_image_prompt(bp, article_text)
+            
+            # Extract keywords in quotes
+            import re
+            quoted_keywords = re.findall(r'"([^"]*)"', bp)
+            
+            # Add to results
+            results.append({
                 "bullet_point": bp,
-                "image_prompt": f"Ultra-realistic 4K vertical editorial photograph illustrating: {bp}. Documentary press style in Le Matin du Sahara's North African press photo aesthetic, neutral lighting, natural color palette, moderate saturation, NO TEXT, NO FACES, exclude religious or political symbols.",
+                "image_prompt": image_prompt,
+                "keywords": quoted_keywords
+            })
+        except Exception as e:
+            print(f"Error generating prompt for bullet point '{bp}': {e}")
+            # Use object-focused fallback prompt with no mention of people
+            results.append({
+                "bullet_point": bp,
+                "image_prompt": f"detailed close-up of symbolic objects representing {bp}, antique wooden desk with scattered papers and vintage tools, warm golden light through window illuminating dust particles, historic library with leather-bound books in background, rich textures and intricate details on all surfaces, captured with Canon EOS R5, 85mm lens at f/2.8, documentary editorial style, extreme detail on materials, perfect composition, --ar 9:16",
                 "keywords": []
-            } for bp in bullet_points
-        ]
+            })
+    
+    return results
 
 def generate_text_summary(article_text, slidenumber, wordnumber, language="English"):
     """
@@ -107,13 +120,16 @@ def generate_text_summary(article_text, slidenumber, wordnumber, language="Engli
         # Get prompt template
         prompt = get_openai_summarization_prompt(article_text, slidenumber, wordnumber, language)
         
+        # Initialize client
+        client = get_openai_client()
+        
         # Call OpenAI API with GPT-4o
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=prompt["messages"],
             response_format={"type": "json_object"},
             temperature=0.7,
-            max_tokens=4000
+            max_tokens=12000
         )
         
         # Parse the JSON response
