@@ -2,7 +2,7 @@ import json
 import os
 import openai
 from dotenv import load_dotenv
-from prompts.image_generation_prompt import get_image_generation_prompt
+from prompts.image_generation_prompt import get_image_generation_prompt, get_concise_image_generation_prompt
 from prompts.openai_summarization_prompt import get_openai_summarization_prompt
 
 # Load environment variables
@@ -30,38 +30,40 @@ def generate_image_prompt(bullet_point, article_text):
         str: The generated image prompt
     """
     try:
-        # Get prompt template for single bullet point
-        prompt = get_image_generation_prompt(bullet_point, article_text)
+        # Get concise prompt template for single bullet point
+        prompt = get_concise_image_generation_prompt(bullet_point, article_text)
         
         # Initialize client
         client = get_openai_client()
         
-        # Call OpenAI API with GPT-4o
+        # Call OpenAI API with GPT-4.1-mini
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4.1-mini",
             messages=prompt["messages"],
             response_format=prompt["response_format"],
-            temperature=0.7,
-            max_tokens=4000  # Reduced to stay within GPT-4o's limits
+            temperature=0.5,  # Lower temperature for more focused output
+            max_tokens=1000   # Reduced for concise output
         )
         
-        # Get the prompt directly from the response content - this should already be
-        # entirely object-focused with no humans/faces mentioned
+        # Get the prompt directly from the response content
         image_prompt = response.choices[0].message.content.strip()
         
-        # Ensure prompt ends with the aspect ratio if it doesn't already
-        if not image_prompt.endswith("--ar 9:16"):
+        # Ensure prompt ends with the correct format
+        if not image_prompt.endswith("–ar 9:16 –quality 4k"):
+            # Remove any existing aspect ratio markers
+            image_prompt = image_prompt.replace("--ar 9:16", "").replace("–ar 9:16", "").strip()
+            # Add the standard format
             if image_prompt.endswith("."):
-                image_prompt = image_prompt[:-1] + ", --ar 9:16"
+                image_prompt = image_prompt + " –ar 9:16 –quality 4k"
             else:
-                image_prompt += ", --ar 9:16"
+                image_prompt = image_prompt + ". –ar 9:16 –quality 4k"
         
         return image_prompt
     
     except Exception as e:
         print(f"Error generating image prompt: {e}")
-        # Return an object-focused fallback prompt with no mention of people/faces
-        return f"detailed close-up of symbolic objects representing {bullet_point}, aged manuscripts on wooden desk with brass instruments, dramatic directional lighting highlighting intricate textures and details, ancient library setting with bookshelves in background, dust particles visible in light beams, captured with Canon EOS R5, 50mm f/1.2 lens, documentary editorial style, hyperrealistic 4K resolution, perfect composition, --ar 9:16"
+        # Return a concise object-focused fallback prompt with no section headers
+        return "Vertical 4K editorial photograph of symbolic objects representing the topic. Ancient manuscripts on wooden desk with brass instruments and old maps. Warm directional lighting highlights textures. Dust particles visible in light beams. Shot with Canon EOS R5, 50mm lens, f/2.8 aperture. –ar 9:16 –quality 4k"
 
 def generate_batch_image_prompts(bullet_points, article_text):
     """
@@ -94,10 +96,10 @@ def generate_batch_image_prompts(bullet_points, article_text):
             })
         except Exception as e:
             print(f"Error generating prompt for bullet point '{bp}': {e}")
-            # Use object-focused fallback prompt with no mention of people
+            # Use concise object-focused fallback prompt with no mention of people
             results.append({
                 "bullet_point": bp,
-                "image_prompt": f"detailed close-up of symbolic objects representing {bp}, antique wooden desk with scattered papers and vintage tools, warm golden light through window illuminating dust particles, historic library with leather-bound books in background, rich textures and intricate details on all surfaces, captured with Canon EOS R5, 85mm lens at f/2.8, documentary editorial style, extreme detail on materials, perfect composition, --ar 9:16",
+                "image_prompt": "Vertical 4K editorial photograph of a historical library setting. Antique wooden desk with scattered papers and vintage tools under warm golden light. Rich textures of leather-bound books fill wooden shelves in background. Details of paper grain and brass instruments visible in foreground. Shot with Canon EOS R5, 85mm lens, f/2.8 aperture. –ar 9:16 –quality 4k",
                 "keywords": []
             })
     
@@ -125,7 +127,7 @@ def generate_text_summary(article_text, slidenumber, wordnumber, language="Engli
         
         # Call OpenAI API with GPT-4o
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4.1-mini",
             messages=prompt["messages"],
             response_format={"type": "json_object"},
             temperature=0.7,

@@ -286,7 +286,7 @@ def main():
             
         slidenumber = st.slider(
             "Nombre de points",
-            min_value=2,
+            min_value=1,
             max_value=12,
             value=10,
             key="slidenumber_slider"
