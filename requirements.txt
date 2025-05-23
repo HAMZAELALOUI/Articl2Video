@@ -4,5 +4,9 @@ beautifulsoup4
 gTTS
 Pillow
 moviepy
-google-generativeai 
+imageio
+tqdm
+decorator
+numpy
+google-generativeai
 openai
