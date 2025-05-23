@@ -1,8 +1,8 @@
 import os
 import glob
 from PIL import Image
-# from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
-from moviepy.editor import ImageClip, AudioFileClip, concatenate_video,concatenate_videoclips
+from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
+
 
 from moviepy.audio.AudioClip import CompositeAudioClip
 
