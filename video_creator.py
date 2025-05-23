@@ -4,6 +4,7 @@ from PIL import Image
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
 
+
 from moviepy.audio.AudioClip import CompositeAudioClip
 
 def image_audio_to_video(image_dir, audio_dir, output_path, add_voiceover, add_music, frame_durations=None):
