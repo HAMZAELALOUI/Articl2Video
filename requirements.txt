@@ -10,3 +10,4 @@ decorator
 numpy
 google-generativeai
 openai
+python-dotenv
